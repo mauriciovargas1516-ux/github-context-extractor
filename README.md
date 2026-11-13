@@ -1,4 +1,4 @@
-#  Hub de Aplicaciones y Super Extractor de Contexto GitHub para IA
+#  Hub de Aplicaciones y Super Extractor de Contexto GitHub 
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/)
 [![Lanzar Super Extractor en Streamlit](https://img.shields.io/badge/_ABRIR_HUB_Y_SUPER_EXTRACTOR_EN_STREAMLIT-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/)
