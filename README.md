@@ -1,7 +1,7 @@
 #  Hub de Aplicaciones y Super Extractor de Contexto GitHub para IA
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/)
-[![Lanzar Super Extractor en Streamlit](https://img.shields.io/badge/⚡_ABRIR_HUB_Y_SUPER_EXTRACTOR_EN_STREAMLIT-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/)
+[![Lanzar Super Extractor en Streamlit](https://img.shields.io/badge/_ABRIR_HUB_Y_SUPER_EXTRACTOR_EN_STREAMLIT-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://github.com/mauriciovargas1516-ux/github-context-extractor)
 
 Plataforma centralizada de ingeniería de contexto y lanzador de aplicaciones web desarrollada en **Python y Streamlit**. Se conecta en tiempo real a la API REST pública de GitHub (`mauriciovargas1516-ux`) para recorrer recursivamente el árbol de directorios de múltiples repositorios y consolidar su código fuente, scripts y documentación técnica en un único archivo maestro `.txt` listo para alimentar ventanas de contexto de modelos de Inteligencia Artificial (LLMs).
@@ -16,10 +16,10 @@ Plataforma centralizada de ingeniería de contexto y lanzador de aplicaciones we
 | Plataforma / Asignatura | Repositorio GitHub | Aplicación Web en Vivo |
 | :--- | :--- | :--- |
 | **Hub & Super Extractor GitHub** | [`github-context-extractor`](https://github.com/mauriciovargas1516-ux/github-context-extractor) | [⚡ Abrir Super Extractor](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/) |
-| **Evaluación Integrada de Proyectos** | [`PROYECTOS-2026`](https://github.com/mauriciovargas1516-ux/PROYECTOS-2026) | [🚀 Abrir Suite Proyectos](https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/) |
-| **Finanzas Avanzadas** | [`FINANZAS-AVANZADAS-2026`](https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026) | [🚀 Abrir Simulador Finanzas](https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/) |
+| **Evaluación Integrada de Proyectos** | [`PROYECTOS-2026`](https://github.com/mauriciovargas1516-ux/PROYECTOS-2026) | [ Abrir Suite Proyectos](https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/) |
+| **Finanzas Avanzadas** | [`FINANZAS-AVANZADAS-2026`](https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026) | [ Abrir Simulador Finanzas](https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/) |
 | **Desarrollo y Gestión Territorial** | [`DESARROLLO-Y-GESTION-TERRITORIAL-2026`](https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026) | [🚀 Abrir Motor Territorial](https://desarrollo-y-gestion-territorial-2026-9yq3jazfc52x93tfumxwpz.streamlit.app/) |
-| **Gestión Tributaria** | [`GESTION-TRIBUTARIA-2026`](https://github.com/mauriciovargas1516-ux/GESTION-TRIBUTARIA-2026) | [🚀 Abrir Suite Tributaria](https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/) |
+| **Gestión Tributaria** | [`GESTION-TRIBUTARIA-2026`](https://github.com/mauriciovargas1516-ux/GESTION-TRIBUTARIA-2026) | [ Abrir Suite Tributaria](https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/) |
 
 ---
 
