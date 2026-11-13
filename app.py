@@ -4,11 +4,11 @@ import json
 import streamlit as st
 
 st.set_page_config(
-    page_title="Hub de Aplicaciones y Extractor de Contexto GitHub",
+    page_title="Hub de Aplicaciones y Extractor de Contexto GitHub - Mauricio Vargas",
     layout="wide",
 )
 
-# Estilo Corporativo Limpio (Conservando paleta de colores ejecutiva)
+# Encabezado y estilo corporativo con colores ejecutivos (sin emojis)
 st.markdown(
     """
     <style>
@@ -23,14 +23,21 @@ st.markdown(
     }
     .corp-title {font-size: 22px; font-weight: 700; margin: 0; letter-spacing: 0.3px;}
     .corp-sub {font-size: 13px; color: #CBD5E1; margin-top: 4px;}
-    .sec-label {
-        font-size: 15px; font-weight: 700; color: #0F172A;
-        border-bottom: 2px solid #E2E8F0; padding-bottom: 6px; margin-bottom: 12px;
+    .sec-header {
+        background-color: #F1F5F9;
+        color: #0F172A;
+        padding: 8px 14px;
+        font-weight: 700;
+        font-size: 14px;
+        border-radius: 4px;
+        border-left: 4px solid #1E3A8A;
+        margin-top: 10px;
+        margin-bottom: 12px;
     }
     </style>
     <div class="corp-banner">
-        <div class="corp-title">HUB DE APLICACIONES Y EXTRACTOR DE CONTEXTO GITHUB</div>
-        <div class="corp-sub">Ingeniería de Contexto y Consolidación de Código Fuente en Tiempo Real vía API REST | mauriciovargas1516-ux</div>
+        <div class="corp-title">HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO GITHUB</div>
+        <div class="corp-sub">Conectado en tiempo real a la API pública de GitHub de mauriciovargas1516-ux</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -58,7 +65,7 @@ def obtener_repositorios(usuario):
 def compilar_contexto_txt(usuario, repos_seleccionados, lista_repos):
     bloques = [
         "=" * 90,
-        f"EXTRACCION DE PORTAFOLIO GITHUB: {usuario}",
+        f"SUPER EXTRACCIÓN EN VIVO DE PORTAFOLIO GITHUB: {usuario}",
         "=" * 90,
         "",
     ]
@@ -68,7 +75,7 @@ def compilar_contexto_txt(usuario, repos_seleccionados, lista_repos):
             continue
         rama = r.get("default_branch", "main")
         bloques.append(f"### REPOSITORIO: {nombre}")
-        bloques.append(f"Descripcion: {r.get('description') or 'Sin descripcion'}")
+        bloques.append(f"Descripción: {r.get('description') or 'Sin descripción'}")
         bloques.append(f"URL GitHub: {r['html_url']}")
         if nombre in APPS_STREAMLIT:
             bloques.append(f"App Streamlit en Vivo: {APPS_STREAMLIT[nombre]}")
@@ -104,29 +111,35 @@ def compilar_contexto_txt(usuario, repos_seleccionados, lista_repos):
     return "\n".join(bloques)
 
 
-st.markdown('<div class="sec-label">I. PLATAFORMAS INTERACTIVAS EN PRODUCCIÓN (STREAMLIT CLOUD)</div>', unsafe_allow_html=True)
+st.markdown(
+    "<div class='sec-header'>I. PLATAFORMAS INTERACTIVAS DESPLEGADAS EN STREAMLIT CLOUD</div>",
+    unsafe_allow_html=True,
+)
 cols = st.columns(4)
 for idx, (nombre_app, link_app) in enumerate(APPS_STREAMLIT.items()):
     with cols[idx % 4]:
         st.link_button(f"Abrir {nombre_app}", link_app, use_container_width=True)
 
-st.write("")
-st.markdown('<div class="sec-label">II. COMPILADOR DE REPOSITORIOS EN ARCHIVO MAESTRO (.TXT) PARA IA</div>', unsafe_allow_html=True)
+st.divider()
 
 repos = obtener_repositorios(USUARIO)
 nombres_todos = [r["name"] for r in repos]
 
-seleccion = st.multiselect("Seleccione los repositorios a incluir en el archivo maestro:", nombres_todos, default=nombres_todos)
+st.markdown(
+    "<div class='sec-header'>II. SELECCIÓN DE REPOSITORIOS A EMPAQUETAR EN ARCHIVO MAESTRO (.TXT) PARA IA</div>",
+    unsafe_allow_html=True,
+)
+seleccion = st.multiselect("Repositorios incluidos en el archivo de contexto:", nombres_todos, default=nombres_todos)
 
-if st.button("Compilar Archivo Maestro de Contexto (.TXT)", type="primary"):
-    with st.spinner("Consultando estructura de directorios y extrayendo código fuente desde GitHub..."):
+if st.button("Generar Super Archivo de Contexto (.TXT)", type="primary"):
+    with st.spinner("Extrayendo árbol de archivos y código fuente desde GitHub..."):
         texto_final = compilar_contexto_txt(USUARIO, seleccion, repos)
-    st.success(f"Extracción finalizada: {len(texto_final):,} caracteres compilados desde {len(seleccion)} repositorios.")
+    st.success(f"Contexto compilado correctamente ({len(texto_final):,} caracteres de {len(seleccion)} repositorios).")
     st.download_button(
         label="Descargar SUPER_CONTEXTO_GITHUB_MAURICIO_2026.txt",
         data=texto_final,
         file_name="SUPER_CONTEXTO_GITHUB_MAURICIO_2026.txt",
         mime="text/plain",
     )
-    with st.expander("Inspeccionar vista previa del archivo generado"):
+    with st.expander("Vista previa del archivo generado"):
         st.text(texto_final[:5000] + "\n\n... [Vista previa truncada] ...")
