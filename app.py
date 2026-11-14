@@ -19,24 +19,39 @@ from docx import Document
 from pypdf import PdfReader
 
 st.set_page_config(
-    page_title="Hub de Aplicaciones y Extractor de Contexto (GitHub + Moodle) - Mauricio Vargas",
+    page_title="Hub de Aplicaciones y Extractor de Contexto - Mauricio Vargas",
     layout="wide",
 )
 
+# Estilo corporativo con margen superior amplio (3.4rem) para que jamás se corte el título arriba
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.5rem !important; max-width: 1280px !important;}
+    .block-container {
+        padding-top: 3.4rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 1280px !important;
+    }
     .corp-banner {
         background: linear-gradient(90deg, #0F172A 0%, #1E3A8A 100%);
         color: #FFFFFF;
-        padding: 18px 24px;
+        padding: 20px 26px;
         border-radius: 6px;
         margin-bottom: 18px;
         border-left: 5px solid #38BDF8;
     }
-    .corp-title {font-size: 22px; font-weight: 700; margin: 0; letter-spacing: 0.3px;}
-    .corp-sub {font-size: 13px; color: #CBD5E1; margin-top: 4px;}
+    .corp-title {
+        font-size: 21px;
+        font-weight: 700;
+        margin: 0;
+        line-height: 1.35;
+        letter-spacing: 0.3px;
+    }
+    .corp-sub {
+        font-size: 13px;
+        color: #CBD5E1;
+        margin-top: 6px;
+    }
     .sec-header {
         background-color: #F1F5F9;
         color: #0F172A;
@@ -51,7 +66,7 @@ st.markdown(
     </style>
     <div class="corp-banner">
         <div class="corp-title">HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO (GITHUB + MOODLE ULAGOS)</div>
-        <div class="corp-sub">Conectado en vivo a la API de GitHub + Bóveda Instantánea de Cátedras Moodle y Libros PDF</div>
+        <div class="corp-sub">Conectado en tiempo real a la API de GitHub y Bóveda Instantánea de Cátedras, Excels y Libros PDF para IA</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -65,10 +80,10 @@ EXTENSIONES_IGNORADAS_MOODLE = (
 )
 
 APPS_STREAMLIT = {
-    "PROYECTOS-2026": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
-    "FINANZAS-AVANZADAS-2026": "https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/",
-    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/",
-    "GESTION-TRIBUTARIA-2026": "https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/",
+    "PROYECTOS-2026": ("Suite Proyectos 2026", "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/"),
+    "FINANZAS-AVANZADAS-2026": ("Finanzas Avanzadas 2026", "https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/"),
+    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": ("Gestión Territorial 2026", "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/"),
+    "GESTION-TRIBUTARIA-2026": ("Gestión Tributaria 2026", "https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/"),
 }
 
 
@@ -99,7 +114,7 @@ def compilar_contexto_txt(usuario, repos_seleccionados, lista_repos):
         bloques.append(f"Descripción: {r.get('description') or 'Sin descripción'}")
         bloques.append(f"URL GitHub: {r['html_url']}")
         if nombre in APPS_STREAMLIT:
-            bloques.append(f"App Streamlit en Vivo: {APPS_STREAMLIT[nombre]}")
+            bloques.append(f"App Streamlit en Vivo: {APPS_STREAMLIT[nombre][1]}")
         bloques.append("-" * 90)
 
         try:
@@ -244,35 +259,38 @@ def procesar_archivo_individual(nombre_arch: str, raw_bytes: bytes, modo_libros:
 
 
 # ==============================================================================
-# BARRA SUPERIOR DE ACCESO RÁPIDO A LAS 4 PLATAFORMAS
+# I. BARRA SUPERIOR DE ACCESO RÁPIDO A LAS 4 PLATAFORMAS (SIN TEXTO CORTADO)
 # ==============================================================================
 st.markdown(
     "<div class='sec-header'>I. PLATAFORMAS INTERACTIVAS DESPLEGADAS EN STREAMLIT CLOUD</div>",
     unsafe_allow_html=True,
 )
 cols = st.columns(4)
-for idx, (nombre_app, link_app) in enumerate(APPS_STREAMLIT.items()):
+for idx, (_, (etiqueta_corta, link_app)) in enumerate(APPS_STREAMLIT.items()):
     with cols[idx % 4]:
-        st.link_button(f"Abrir {nombre_app}", link_app, use_container_width=True)
+        st.link_button(f"Abrir {etiqueta_corta}", link_app, use_container_width=True)
 
 # ==============================================================================
-# BÓVEDA INSTANTÁNEA EN EL REPOSITORIO (SIN SUBIR NADA SI EL ZIP YA ESTÁ EN GITHUB)
+# II. BÓVEDA INSTANTÁNEA EN EL REPOSITORIO (SE ACTIVA AL SUBIR EL ZIP DE 2 MB)
 # ==============================================================================
 if os.path.exists(ARCHIVO_BOVEDA_MOODLE):
     st.markdown(
-        "<div class='sec-header'>II. BÓVEDA INSTANTÁNEA PRE-CARGADA (DESCARGA EN 1 CLIC SIN SUBIR ARCHIVOS)</div>",
+        "<div class='sec-header'>II. BÓVEDA MOODLE PRE-CARGADA (DESCARGA EN 1 CLIC SIN SUBIR ARCHIVOS)</div>",
         unsafe_allow_html=True,
     )
     with zipfile.ZipFile(ARCHIVO_BOVEDA_MOODLE, "r") as zf_bov:
         archivos_txt_boveda = sorted([n for n in zf_bov.namelist() if n.endswith(".txt")])
 
-    c_bov1, c_bov2, c_bov3 = st.columns([1.6, 1.2, 1.2])
+    c_bov1, c_bov2, c_bov3 = st.columns([1.8, 1.1, 1.1])
     with c_bov1:
-        txt_elegido = st.selectbox("Selecciona el Ramo Destilado en la Bóveda:", archivos_txt_boveda)
+        txt_elegido = st.selectbox(
+            "Selecciona el Ramo Destilado en la Bóveda:",
+            archivos_txt_boveda,
+            label_visibility="collapsed",
+        )
     with c_bov2:
         with zipfile.ZipFile(ARCHIVO_BOVEDA_MOODLE, "r") as zf_bov:
             bytes_ramo = zf_bov.read(txt_elegido)
-        st.write("")
         st.download_button(
             label=f"Descargar {txt_elegido}",
             data=bytes_ramo,
@@ -284,9 +302,8 @@ if os.path.exists(ARCHIVO_BOVEDA_MOODLE):
     with c_bov3:
         with open(ARCHIVO_BOVEDA_MOODLE, "rb") as f_z:
             bytes_zip_total = f_z.read()
-        st.write("")
         st.download_button(
-            label="Descargar ZIP con Todos los Ramos",
+            label="Descargar ZIP Completo (Todos los Ramos)",
             data=bytes_zip_total,
             file_name=ARCHIVO_BOVEDA_MOODLE,
             mime="application/zip",
@@ -296,12 +313,12 @@ if os.path.exists(ARCHIVO_BOVEDA_MOODLE):
 st.divider()
 
 # ==============================================================================
-# NAVEGACIÓN POR PESTAÑAS DEL SUPER EXTRACTOR
+# NAVEGACIÓN POR PESTAÑAS (TÍTULOS COMPACTOS PARA EVITAR RECORTE LATERAL)
 # ==============================================================================
 tab_git, tab_moodle, tab_libros = st.tabs([
-    "1. Extractor de Código GitHub (API en Vivo)",
-    "2. Destilador de Cátedras Moodle (Generar Bóveda desde ZIP de 433 MB)",
-    "3. Destilador y Buscador en Libros Pesados (Ross, Gitman, Fontaine, CEPAL)",
+    "1. Extractor GitHub (API en Vivo)",
+    "2. Destilador Moodle (ZIP Completo o Archivos)",
+    "3. Buscador en Libros PDF (Ross, Gitman, Fontaine, CEPAL)",
 ])
 
 # ------------------------------------------------------------------------------
@@ -344,9 +361,8 @@ with tab_moodle:
         unsafe_allow_html=True,
     )
     st.info(
-        "**Tip de Ingeniería:** Una vez que descargues aquí el archivo liviano **`Todos_Los_Ramos_Destilados_TXT.zip`** (~2 MB), "
-        "súbelo una sola vez a tu repositorio `github-context-extractor` en GitHub. Así quedará activada para siempre la "
-        "**Bóveda Instantánea** de arriba y no tendrás que volver a subir los 433 MB."
+        "**Bóveda Permanente:** Si subes el archivo liviano **`Todos_Los_Ramos_Destilados_TXT.zip`** a la raíz de este "
+        "repositorio en GitHub, quedará habilitado para siempre el panel de descarga en 1 clic en la parte superior."
     )
 
     c_m1, c_m2 = st.columns([1.3, 1.7])
