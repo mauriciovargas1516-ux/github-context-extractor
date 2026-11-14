@@ -3,3 +3,4 @@ pypdf
 openpyxl
 pandas
 python-docx
+python-calamine
