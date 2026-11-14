@@ -60,7 +60,10 @@ st.markdown(
 
 USUARIO = "mauriciovargas1516-ux"
 EXTENSIONES_GIT = (".py", ".md", ".txt", ".rmd", ".toml", ".json")
-EXTENSIONES_IGNORADAS_MOODLE = (".mp4", ".avi", ".mov", ".mkv", ".exe", ".png", ".jpg", ".jpeg")
+# Ignora videos MP4 y comprimidos pesados dentro del ZIP sin siquiera descomprimirlos en RAM
+EXTENSIONES_IGNORADAS_MOODLE = (
+    ".mp4", ".avi", ".mov", ".mkv", ".zip", ".rar", ".exe", ".png", ".jpg", ".jpeg", ".mp3", ".wav"
+)
 
 APPS_STREAMLIT = {
     "PROYECTOS-2026": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
@@ -263,7 +266,7 @@ st.divider()
 # ==============================================================================
 tab_git, tab_moodle, tab_libros = st.tabs([
     "1. Extractor de Código GitHub (API en Vivo)",
-    "2. Destilador de Cátedras Moodle (PDFs + Excels con Fórmulas -> 1 .TXT)",
+    "2. Destilador de Cátedras Moodle (Soporta ZIP Completo de 433 MB o Archivos Sueltos)",
     "3. Destilador y Buscador en Libros Pesados (Ross, Gitman, Fontaine, CEPAL)",
 ])
 
@@ -299,30 +302,28 @@ with tab_git:
             st.text(texto_final[:5000] + "\n\n... [Vista previa truncada] ...")
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 2: DESTILADOR DE CÁTEDRAS MOODLE (ADIÓS A SUBIR DE 10 EN 10)
+# PESTAÑA 2: DESTILADOR DE CÁTEDRAS MOODLE (ZIP COMPLETO EN STREAMING O SUELTOS)
 # ------------------------------------------------------------------------------
 with tab_moodle:
     st.markdown(
-        "<div class='sec-header'>CONVERTIR CARPETA DE MOODLE (APUNTES PDF, GUÍAS, EXCELS Y WORD) EN 1 SOLO ARCHIVO .TXT</div>",
+        "<div class='sec-header'>DESTILAR RESPALDO_ULAGOS_2026.ZIP COMPLETO (IGNORA VIDEOS MP4 EN STREAMING) O ARCHIVOS SUELTOS</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
-        "Selecciona **todos los archivos PDF, Excel (`.xlsx`/`.xls`), Word (`.docx`) o RMarkdown (`.rmd`)** de una asignatura "
-        "(o sube un archivo `.zip` sin los videos `.mp4`) y el motor generará **un único archivo `.txt`** con todo el contenido "
-        "y las fórmulas ocultas de los Excels listo para subir a cualquier IA de una sola vez."
+        "Puedes subir **directamente tu `Respaldo_ULagos_2026.zip` completo** (el motor ignora todos los `.mp4`, `.rar` y `.zip` "
+        "internos sin descomprimirlos en memoria) o arrastrar los archivos sueltos de una carpeta."
     )
 
-    c_m1, c_m2 = st.columns([1.2, 1.8])
+    c_m1, c_m2 = st.columns([1.3, 1.7])
     with c_m1:
-        nombre_ramo = st.selectbox(
-            "Asignatura que estás empaquetando:",
+        filtro_ramo_zip = st.selectbox(
+            "¿Qué carpeta(s) deseas procesar si subes el ZIP completo?",
             [
-                "FINANZAS_AVANZADAS_2026",
-                "TRIBUTARIA_2026",
-                "PROYECTOS_2026",
-                "TERRITORIAL_2026",
-                "MARKETING_DIGITAL_2026",
-                "OTRO_RAMO_ULAGOS",
+                "TODAS LAS CARPETAS DEL ZIP (Genera 1 .TXT separado por cada ramo en un .ZIP liviano)",
+                "Solo FINANZAS AVANZADAS 2026 (Genera 1 archivo .TXT directo)",
+                "Solo TRIBUTARIA 2026 (Genera 1 archivo .TXT directo)",
+                "Solo PROYECTOS 2026 (Genera 1 archivo .TXT directo)",
+                "Solo TERRITORIAL 2026 (Genera 1 archivo .TXT directo)",
             ],
         )
     with c_m2:
@@ -335,52 +336,142 @@ with tab_moodle:
         )
 
     archivos_subidos = st.file_uploader(
-        "Arrastra aquí todos los PDFs, Excels (.xlsx/.xls), Word (.docx), .rmd o un .zip del ramo:",
-        type=["pdf", "xlsx", "xls", "docx", "rmd", "txt", "md", "csv", "zip"],
+        "Arrastra aquí tu Respaldo_ULagos_2026.zip completo o los PDFs / Excels sueltos del ramo:",
+        type=["zip", "pdf", "xlsx", "xls", "docx", "rmd", "txt", "md", "csv"],
         accept_multiple_files=True,
         key="uploader_moodle_multiple",
     )
 
-    if archivos_subidos and st.button("Destilar Ramo Completo en 1 Archivo .TXT", type="primary"):
-        bloques_ramo = [
-            "=" * 90,
-            f"SUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS: {nombre_ramo}",
-            "=" * 90,
-            "INVENTARIO DE ARCHIVOS PROCESADOS:",
-        ]
-        for f_up in archivos_subidos:
-            bloques_ramo.append(f"  - {f_up.name} ({f_up.size / 1024.0:,.1f} KB)")
-        bloques_ramo.append("\n" + "=" * 90 + "\n")
+    if archivos_subidos and st.button("Destilar e Ignorar Videos Automáticamente", type="primary"):
+        # Si subió un archivo .ZIP maestro y eligió separar todas las carpetas en un .ZIP de TXTs
+        es_un_zip = (len(archivos_subidos) == 1) and archivos_subidos[0].name.lower().endswith(".zip")
 
-        with st.spinner("Extrayendo texto de PDFs y desglosando fórmulas de Excels..."):
-            for f_up in archivos_subidos:
-                raw_b = f_up.read()
-                if f_up.name.lower().endswith(".zip"):
-                    with zipfile.ZipFile(io.BytesIO(raw_b), "r") as zf:
-                        for info in zf.infolist():
-                            if info.is_dir():
-                                continue
-                            nom_interno = info.filename
-                            if os.path.splitext(nom_interno)[1].lower() in EXTENSIONES_IGNORADAS_MOODLE:
-                                continue
-                            b_interno = zf.read(nom_interno)
-                            bloques_ramo.append(procesar_archivo_individual(nom_interno, b_interno, modo_libros_moodle))
-                else:
-                    bloques_ramo.append(procesar_archivo_individual(f_up.name, raw_b, modo_libros_moodle))
+        if es_un_zip and filtro_ramo_zip.startswith("TODAS"):
+            f_zip = archivos_subidos[0]
+            f_zip.seek(0)
+            buf_out_zip = io.BytesIO()
+            conteo_ignorados = 0
+            conteo_procesados = 0
 
-        txt_ramo_final = "\n".join(bloques_ramo)
-        nom_salida_ramo = f"CATEDRA_{nombre_ramo}.txt"
-        st.success(
-            f"¡Listo! Se destilaron {len(archivos_subidos)} archivos en `{nom_salida_ramo}` "
-            f"({len(txt_ramo_final):,} caracteres)."
-        )
-        st.download_button(
-            label=f"Descargar {nom_salida_ramo} (Listo para subir al chat de IA)",
-            data=txt_ramo_final,
-            file_name=nom_salida_ramo,
-            mime="text/plain",
-            use_container_width=True,
-        )
+            with st.spinner("Leyendo Respaldo_ULagos_2026.zip en streaming, saltando videos MP4 y separando por ramo..."):
+                with zipfile.ZipFile(f_zip, "r") as zf_in:
+                    cursos_map = {}
+                    for info in zf_in.infolist():
+                        if info.is_dir():
+                            continue
+                        partes = info.filename.split("/")
+                        carpeta_curso = partes[0] if len(partes) > 1 else "RAIZ_ULAGOS"
+                        cursos_map.setdefault(carpeta_curso, []).append(info)
+
+                    with zipfile.ZipFile(buf_out_zip, "w", zipfile.ZIP_DEFLATED) as zf_out:
+                        for curso_nom, lista_infos in cursos_map.items():
+                            bloques_c = [
+                                "=" * 90,
+                                f"SUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS: {curso_nom}",
+                                "=" * 90,
+                                "INVENTARIO COMPLETO DE LA CARPETA (INCLUYENDO MULTIMEDIA OMITIDO):",
+                            ]
+                            for inf in lista_infos:
+                                bloques_c.append(f"  - {inf.filename} ({inf.file_size / 1024.0:,.1f} KB)")
+                            bloques_c.append("\n" + "=" * 90 + "\n")
+
+                            for inf in lista_infos:
+                                ext_i = os.path.splitext(inf.filename)[1].lower()
+                                peso_mb_i = inf.file_size / (1024.0 * 1024.0)
+                                if ext_i in EXTENSIONES_IGNORADAS_MOODLE:
+                                    conteo_ignorados += 1
+                                    bloques_c.append(
+                                        f"### VIDEO / COMPRIMIDO IGNORADO SIN DESCOMPRIMIR: {inf.filename} ({peso_mb_i:.1f} MB)\n"
+                                    )
+                                    continue
+
+                                conteo_procesados += 1
+                                b_doc = zf_in.read(inf.filename)
+                                bloques_c.append(procesar_archivo_individual(inf.filename, b_doc, modo_libros_moodle))
+
+                            nom_txt_c = f"CATEDRA_{curso_nom.replace(' ', '_').replace('[', '').replace(']', '')}.txt"
+                            zf_out.writestr(nom_txt_c, "\n".join(bloques_c))
+
+            buf_out_zip.seek(0)
+            st.success(
+                f"¡ZIP completo procesado! Se extrajeron {conteo_procesados} documentos académicos y se "
+                f"ignoraron {conteo_ignorados} videos/binarios pesados."
+            )
+            st.download_button(
+                label="Descargar Todos_Los_Ramos_Destilados_TXT.zip (1 .TXT limpio por cada asignatura)",
+                data=buf_out_zip.getvalue(),
+                file_name="Todos_Los_Ramos_Destilados_TXT.zip",
+                mime="application/zip",
+                use_container_width=True,
+            )
+
+        else:
+            # Procesa filtrando por el ramo elegido (dentro del ZIP) o los archivos sueltos subidos
+            filtro_clave = ""
+            if "FINANZAS" in filtro_ramo_zip:
+                filtro_clave = "FINANZAS"
+            elif "TRIBUTARIA" in filtro_ramo_zip:
+                filtro_clave = "TRIBUTARIA"
+            elif "PROYECTOS" in filtro_ramo_zip:
+                filtro_clave = "PROYECTOS"
+            elif "TERRITORIAL" in filtro_ramo_zip:
+                filtro_clave = "TERRITORIAL"
+
+            etiqueta_ramo = filtro_clave if filtro_clave else "RAMO_ULAGOS_2026"
+            bloques_ramo = [
+                "=" * 90,
+                f"SUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS: {etiqueta_ramo}",
+                "=" * 90,
+                "",
+            ]
+            conteo_ok = 0
+            conteo_skip = 0
+
+            with st.spinner("Extrayendo documentos y fórmulas de Excel (saltando videos MP4)..."):
+                for f_up in archivos_subidos:
+                    f_up.seek(0)
+                    if f_up.name.lower().endswith(".zip"):
+                        with zipfile.ZipFile(f_up, "r") as zf_in:
+                            for info in zf_in.infolist():
+                                if info.is_dir():
+                                    continue
+                                if filtro_clave and filtro_clave.lower() not in info.filename.lower():
+                                    continue
+                                ext_i = os.path.splitext(info.filename)[1].lower()
+                                if ext_i in EXTENSIONES_IGNORADAS_MOODLE:
+                                    conteo_skip += 1
+                                    bloques_ramo.append(
+                                        f"### VIDEO / COMPRIMIDO IGNORADO: {info.filename} ({info.file_size/1024/1024:.1f} MB)\n"
+                                    )
+                                    continue
+                                conteo_ok += 1
+                                b_interno = zf_in.read(info.filename)
+                                bloques_ramo.append(
+                                    procesar_archivo_individual(info.filename, b_interno, modo_libros_moodle)
+                                )
+                    else:
+                        ext_s = os.path.splitext(f_up.name)[1].lower()
+                        if ext_s in EXTENSIONES_IGNORADAS_MOODLE:
+                            conteo_skip += 1
+                            continue
+                        conteo_ok += 1
+                        bloques_ramo.append(
+                            procesar_archivo_individual(f_up.name, f_up.read(), modo_libros_moodle)
+                        )
+
+            txt_ramo_final = "\n".join(bloques_ramo)
+            nom_salida_ramo = f"CATEDRA_{etiqueta_ramo}_2026.txt"
+            st.success(
+                f"¡Listo! Se procesaron {conteo_ok} documentos ({conteo_skip} videos/binarios ignorados) "
+                f"en `{nom_salida_ramo}` ({len(txt_ramo_final):,} caracteres)."
+            )
+            st.download_button(
+                label=f"Descargar {nom_salida_ramo} (Listo para subir al chat de IA)",
+                data=txt_ramo_final,
+                file_name=nom_salida_ramo,
+                mime="text/plain",
+                use_container_width=True,
+            )
 
 # ------------------------------------------------------------------------------
 # PESTAÑA 3: BUSCADOR COGNITIVO Y EXTRACTOR DE TOMOS EN LIBROS PESADOS
@@ -429,6 +520,7 @@ with tab_libros:
             total_pags_halladas = 0
             with st.spinner("Escaneando todas las páginas de los libros cargados..."):
                 for lib in libros_subidos:
+                    lib.seek(0)
                     pags = leer_paginas_pdf_bytes(lib.read(), lib.name)
                     hallazgos = []
                     for num_p, txt_p in pags:
@@ -463,6 +555,7 @@ with tab_libros:
             with st.spinner("Convirtiendo libros completos en tomos de texto..."):
                 with zipfile.ZipFile(buf_zip, "w", zipfile.ZIP_DEFLATED) as zf_out:
                     for lib in libros_subidos:
+                        lib.seek(0)
                         pags = leer_paginas_pdf_bytes(lib.read(), lib.name)
                         base_nom = os.path.splitext(lib.name)[0].replace(" ", "_")
                         tomo = 1
