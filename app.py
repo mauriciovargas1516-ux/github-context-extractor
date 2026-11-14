@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO (GITHUB + MOODLE ULAGOS + LIBROS)
+HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO (GITHUB + BÓVEDA MOODLE ULAGOS)
 Repositorio: github-context-extractor
 Autor: Mauricio Alejandro Vargas Ortega — Ingeniería Comercial ULagos
 """
@@ -23,7 +23,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilo corporativo limpio
 st.markdown(
     """
     <style>
@@ -52,15 +51,15 @@ st.markdown(
     </style>
     <div class="corp-banner">
         <div class="corp-title">HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO (GITHUB + MOODLE ULAGOS)</div>
-        <div class="corp-sub">Conectado en tiempo real a la API de GitHub y Destilador Inteligente de Cátedras, Excels y Libros PDF para IA</div>
+        <div class="corp-sub">Conectado en vivo a la API de GitHub + Bóveda Instantánea de Cátedras Moodle y Libros PDF</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
 USUARIO = "mauriciovargas1516-ux"
+ARCHIVO_BOVEDA_MOODLE = "Todos_Los_Ramos_Destilados_TXT.zip"
 EXTENSIONES_GIT = (".py", ".md", ".txt", ".rmd", ".toml", ".json")
-# Ignora videos MP4 y comprimidos pesados dentro del ZIP sin siquiera descomprimirlos en RAM
 EXTENSIONES_IGNORADAS_MOODLE = (
     ".mp4", ".avi", ".mov", ".mkv", ".zip", ".rar", ".exe", ".png", ".jpg", ".jpeg", ".mp3", ".wav"
 )
@@ -74,7 +73,7 @@ APPS_STREAMLIT = {
 
 
 # ==============================================================================
-# FUNCIONES DEL EXTRACTOR DE GITHUB (PESTAÑA 1)
+# FUNCIONES DEL EXTRACTOR DE GITHUB
 # ==============================================================================
 @st.cache_data(ttl=300)
 def obtener_repositorios(usuario):
@@ -134,10 +133,9 @@ def compilar_contexto_txt(usuario, repos_seleccionados, lista_repos):
 
 
 # ==============================================================================
-# FUNCIONES DEL DESTILADOR DE MOODLE Y LIBROS PDF (PESTAÑAS 2 Y 3)
+# FUNCIONES DEL DESTILADOR DE MOODLE Y LIBROS PDF
 # ==============================================================================
 def leer_paginas_pdf_bytes(data_bytes: bytes, nombre_archivo: str) -> list:
-    """Retorna lista de tuplas [(numero_pagina, texto_pagina), ...] desde un PDF."""
     try:
         lector = PdfReader(io.BytesIO(data_bytes))
         paginas = []
@@ -151,7 +149,6 @@ def leer_paginas_pdf_bytes(data_bytes: bytes, nombre_archivo: str) -> list:
 
 
 def extraer_excel_con_formulas(data_bytes: bytes, nombre_archivo: str) -> str:
-    """Extrae valores y fórmulas nativas (=SUM, =VNA, =TIR, etc.) de archivos Excel."""
     salida = []
     if nombre_archivo.lower().endswith(".xlsx"):
         try:
@@ -206,7 +203,6 @@ def extraer_word_bytes(data_bytes: bytes, nombre_archivo: str) -> str:
 
 
 def procesar_archivo_individual(nombre_arch: str, raw_bytes: bytes, modo_libros: str) -> str:
-    """Convierte un archivo individual (PDF, Excel, Word, Rmd, TXT) en bloque de texto estructurado."""
     ext = os.path.splitext(nombre_arch)[1].lower()
     peso_mb = len(raw_bytes) / (1024.0 * 1024.0)
 
@@ -259,6 +255,44 @@ for idx, (nombre_app, link_app) in enumerate(APPS_STREAMLIT.items()):
     with cols[idx % 4]:
         st.link_button(f"Abrir {nombre_app}", link_app, use_container_width=True)
 
+# ==============================================================================
+# BÓVEDA INSTANTÁNEA EN EL REPOSITORIO (SIN SUBIR NADA SI EL ZIP YA ESTÁ EN GITHUB)
+# ==============================================================================
+if os.path.exists(ARCHIVO_BOVEDA_MOODLE):
+    st.markdown(
+        "<div class='sec-header'>II. BÓVEDA INSTANTÁNEA PRE-CARGADA (DESCARGA EN 1 CLIC SIN SUBIR ARCHIVOS)</div>",
+        unsafe_allow_html=True,
+    )
+    with zipfile.ZipFile(ARCHIVO_BOVEDA_MOODLE, "r") as zf_bov:
+        archivos_txt_boveda = sorted([n for n in zf_bov.namelist() if n.endswith(".txt")])
+
+    c_bov1, c_bov2, c_bov3 = st.columns([1.6, 1.2, 1.2])
+    with c_bov1:
+        txt_elegido = st.selectbox("Selecciona el Ramo Destilado en la Bóveda:", archivos_txt_boveda)
+    with c_bov2:
+        with zipfile.ZipFile(ARCHIVO_BOVEDA_MOODLE, "r") as zf_bov:
+            bytes_ramo = zf_bov.read(txt_elegido)
+        st.write("")
+        st.download_button(
+            label=f"Descargar {txt_elegido}",
+            data=bytes_ramo,
+            file_name=txt_elegido,
+            mime="text/plain",
+            type="primary",
+            use_container_width=True,
+        )
+    with c_bov3:
+        with open(ARCHIVO_BOVEDA_MOODLE, "rb") as f_z:
+            bytes_zip_total = f_z.read()
+        st.write("")
+        st.download_button(
+            label="Descargar ZIP con Todos los Ramos",
+            data=bytes_zip_total,
+            file_name=ARCHIVO_BOVEDA_MOODLE,
+            mime="application/zip",
+            use_container_width=True,
+        )
+
 st.divider()
 
 # ==============================================================================
@@ -266,7 +300,7 @@ st.divider()
 # ==============================================================================
 tab_git, tab_moodle, tab_libros = st.tabs([
     "1. Extractor de Código GitHub (API en Vivo)",
-    "2. Destilador de Cátedras Moodle (Soporta ZIP Completo de 433 MB o Archivos Sueltos)",
+    "2. Destilador de Cátedras Moodle (Generar Bóveda desde ZIP de 433 MB)",
     "3. Destilador y Buscador en Libros Pesados (Ross, Gitman, Fontaine, CEPAL)",
 ])
 
@@ -309,9 +343,10 @@ with tab_moodle:
         "<div class='sec-header'>DESTILAR RESPALDO_ULAGOS_2026.ZIP COMPLETO (IGNORA VIDEOS MP4 EN STREAMING) O ARCHIVOS SUELTOS</div>",
         unsafe_allow_html=True,
     )
-    st.markdown(
-        "Puedes subir **directamente tu `Respaldo_ULagos_2026.zip` completo** (el motor ignora todos los `.mp4`, `.rar` y `.zip` "
-        "internos sin descomprimirlos en memoria) o arrastrar los archivos sueltos de una carpeta."
+    st.info(
+        "**Tip de Ingeniería:** Una vez que descargues aquí el archivo liviano **`Todos_Los_Ramos_Destilados_TXT.zip`** (~2 MB), "
+        "súbelo una sola vez a tu repositorio `github-context-extractor` en GitHub. Así quedará activada para siempre la "
+        "**Bóveda Instantánea** de arriba y no tendrás que volver a subir los 433 MB."
     )
 
     c_m1, c_m2 = st.columns([1.3, 1.7])
@@ -319,7 +354,7 @@ with tab_moodle:
         filtro_ramo_zip = st.selectbox(
             "¿Qué carpeta(s) deseas procesar si subes el ZIP completo?",
             [
-                "TODAS LAS CARPETAS DEL ZIP (Genera 1 .TXT separado por cada ramo en un .ZIP liviano)",
+                "TODAS LAS CARPETAS DEL ZIP (Genera Todos_Los_Ramos_Destilados_TXT.zip)",
                 "Solo FINANZAS AVANZADAS 2026 (Genera 1 archivo .TXT directo)",
                 "Solo TRIBUTARIA 2026 (Genera 1 archivo .TXT directo)",
                 "Solo PROYECTOS 2026 (Genera 1 archivo .TXT directo)",
@@ -343,7 +378,6 @@ with tab_moodle:
     )
 
     if archivos_subidos and st.button("Destilar e Ignorar Videos Automáticamente", type="primary"):
-        # Si subió un archivo .ZIP maestro y eligió separar todas las carpetas en un .ZIP de TXTs
         es_un_zip = (len(archivos_subidos) == 1) and archivos_subidos[0].name.lower().endswith(".zip")
 
         if es_un_zip and filtro_ramo_zip.startswith("TODAS"):
@@ -398,7 +432,7 @@ with tab_moodle:
                 f"ignoraron {conteo_ignorados} videos/binarios pesados."
             )
             st.download_button(
-                label="Descargar Todos_Los_Ramos_Destilados_TXT.zip (1 .TXT limpio por cada asignatura)",
+                label="Descargar Todos_Los_Ramos_Destilados_TXT.zip (Súbelo a tu GitHub para dejarlo fijo)",
                 data=buf_out_zip.getvalue(),
                 file_name="Todos_Los_Ramos_Destilados_TXT.zip",
                 mime="application/zip",
@@ -406,7 +440,6 @@ with tab_moodle:
             )
 
         else:
-            # Procesa filtrando por el ramo elegido (dentro del ZIP) o los archivos sueltos subidos
             filtro_clave = ""
             if "FINANZAS" in filtro_ramo_zip:
                 filtro_clave = "FINANZAS"
@@ -481,13 +514,6 @@ with tab_libros:
         "<div class='sec-header'>EXTRACTOR POR TEMA Y DIVISOR EN TOMOS PARA LIBROS GRANDES (ROSS, GITMAN, FONTAINE, CEPAL)</div>",
         unsafe_allow_html=True,
     )
-    st.markdown(
-        "Sube aquí uno o varios **libros o manuales grandes en PDF** (como *Ross*, *Brealey*, *Gitman*, *Fontaine*, "
-        "*Metodología MIDESO 2025*, *CEPAL Cadenas de Valor* o *SUBDERE PROT*) para:\n"
-        "1. **Extraer solo las páginas donde aparece un tema específico** (con número de página exacto para citar en APA 7), o\n"
-        "2. **Descargar el libro entero dividido en Tomos `.TXT`** (de ~400.000 caracteres cada uno) dentro de un `.zip`."
-    )
-
     libros_subidos = st.file_uploader(
         "Sube aquí el libro o los libros PDF:",
         type=["pdf"],
