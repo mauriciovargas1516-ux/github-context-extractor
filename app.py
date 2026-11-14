@@ -49,7 +49,7 @@ EXTENSIONES = (".py", ".md", ".txt", ".rmd", ".toml", ".json")
 APPS_STREAMLIT = {
     "PROYECTOS-2026": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
     "FINANZAS-AVANZADAS-2026": "https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/",
-    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": "https://desarrollo-y-gestion-territorial-2026-9yq3jazfc52x93tfumxwpz.streamlit.app/",
+    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/",
     "GESTION-TRIBUTARIA-2026": "https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/",
 }
 
