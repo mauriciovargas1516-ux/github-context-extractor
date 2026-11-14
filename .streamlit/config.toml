@@ -1,1 +1,5 @@
-.streamlit/config.toml
+[server]
+maxUploadSize = 1024
+
+[client]
+toolbarMode = "minimal"
