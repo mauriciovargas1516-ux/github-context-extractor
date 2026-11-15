@@ -509,7 +509,7 @@ MAPA_REPOS_A_RAMOS = {
         "sigla_archivo": "DESARROLLO_Y_GESTION_TERRITORIAL",
         "corto": "TERRITORIAL",
         "docente": "Prof. Claudio Mancilla",
-        "app_url": "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/",
+        "app_url": "https://desarrollo-y-gestion-territorial-2026-azi4k3liecm2g45r97lkff.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026",
         "descripcion": "Indicadores de especialización regional (Qij, CE, Silva Lira), Gini/Theil, Ordenamiento Territorial (Guttman/Rondinelli) y Redes UCINET/Dini.",
         "topics": ["python", "streamlit", "desarrollo-territorial", "sii-chile", "ucinet", "ulagos"],
@@ -823,7 +823,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
     },
     "Desarrollo y Gestión Territorial": {
         "docente": "Prof. Claudio Mancilla",
-        "app_url": "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/",
+        "app_url": "https://desarrollo-y-gestion-territorial-2026-azi4k3liecm2g45r97lkff.streamlit.app/",
         "tarjetas": [
             {
                 "id": "terr_localizacion",
@@ -847,7 +847,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "• Weber (Pág. 12-13): IM = peso de las materias primas localizadas / peso del producto final."
                 ),
                 "links": [
-                    ("Abrir Plataforma Desarrollo y Gestión Territorial", "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/"),
+                    ("Abrir Plataforma Desarrollo y Gestión Territorial", "https://desarrollo-y-gestion-territorial-2026-azi4k3liecm2g45r97lkff.streamlit.app/"),
                     ("Repositorio GitHub Territorial 2026", "https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026"),
                 ],
             },
@@ -873,7 +873,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 ),
                 "links": [
                     ("Manual Elaboración PLADECO (SUBDERE PDF)", "http://www.subdere.gov.cl/sites/default/noticiasold/articles-77172_recurso_1.pdf"),
-                    ("Abrir Módulo Guttman / Rondinelli en App Territorial", "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/"),
+                    ("Abrir Módulo Guttman / Rondinelli en App Territorial", "https://desarrollo-y-gestion-territorial-2026-azi4k3liecm2g45r97lkff.streamlit.app/"),
                 ],
             },
             {
@@ -897,7 +897,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "No sugieran que necesariamente debe existir un clúster. No hablen de DEBILIDADES; indiquen desafíos, mejoras o aspectos para fortalecer."
                 ),
                 "links": [
-                    ("Abrir Simulador Redes de Dini y UCINET en Vivo", "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/"),
+                    ("Abrir Simulador Redes de Dini y UCINET en Vivo", "https://desarrollo-y-gestion-territorial-2026-azi4k3liecm2g45r97lkff.streamlit.app/"),
                 ],
             },
         ],
