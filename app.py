@@ -1,626 +1,909 @@
 # -*- coding: utf-8 -*-
 """
-HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO (GITHUB + BÓVEDA MOODLE ULAGOS)
-Repositorio: github-context-extractor
-Autor: Mauricio Alejandro Vargas Ortega — Ingeniería Comercial ULagos
+app.py — HUB CENTRAL DE APLICACIONES Y EXTRACTOR DE CONTEXTO POR RAMO (ULAGOS 2026)
+Repositorio: https://github.com/mauriciovargas1516-ux/github-context-extractor
+- Personaliza automáticamente el nombre del archivo .txt y su encabezado según el ramo o los
+  repositorios seleccionados (reemplazando el nombre genérico SUPER_CONTEXTO).
+- Incorpora Cuadrillas Metodológicas e Informativas con citas exactas de la literatura oficial
+  (autor, documento de Moodle, capítulo y página/lámina) para cada asignatura.
+- Permite inyectar la cuadrilla bibliográfica directamente en el .txt descargado.
+- Detecta y permite descargar archivos locales de cátedra presentes en el repositorio.
 """
 
-import io
-import json
 import os
-import urllib.parse
+import re
+import json
+import base64
 import urllib.request
-import zipfile
-
-import openpyxl
-import pandas as pd
+import urllib.error
+from datetime import datetime
 import streamlit as st
-from docx import Document
-from pypdf import PdfReader
+import pandas as pd
+
+
+# ==============================================================================
+# 1. CONFIGURACIÓN DE PÁGINA Y ESTILO INSTITUCIONAL CLARO (SIN EMOJIS)
+# ==============================================================================
 
 st.set_page_config(
-    page_title="Hub de Aplicaciones y Extractor de Contexto - Mauricio Vargas",
+    page_title="Hub Académico y Extractor de Contexto ULagos 2026",
     layout="wide",
 )
 
-# Estilo corporativo con margen superior amplio (3.4rem) para que jamás se corte el título arriba
 st.markdown(
     """
     <style>
+    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+        background-color: #F8FAFC !important;
+        color: #0F172A !important;
+    }
     .block-container {
-        padding-top: 3.4rem !important;
-        padding-bottom: 2rem !important;
+        padding-top: 1.4rem !important;
+        padding-bottom: 2.5rem !important;
         max-width: 1280px !important;
     }
-    .corp-banner {
-        background: linear-gradient(90deg, #0F172A 0%, #1E3A8A 100%);
+    .top-banner {
+        background-color: #0F172A;
         color: #FFFFFF;
-        padding: 20px 26px;
-        border-radius: 6px;
-        margin-bottom: 18px;
-        border-left: 5px solid #38BDF8;
+        padding: 18px 24px;
+        border-radius: 8px;
+        border-left: 6px solid #2563EB;
+        margin-bottom: 16px;
     }
-    .corp-title {
-        font-size: 21px;
-        font-weight: 700;
-        margin: 0;
-        line-height: 1.35;
-        letter-spacing: 0.3px;
+    .top-banner h1 {
+        color: #FFFFFF !important;
+        font-size: 21px !important;
+        font-weight: 700 !important;
+        margin: 0 0 6px 0 !important;
     }
-    .corp-sub {
-        font-size: 13px;
-        color: #CBD5E1;
-        margin-top: 6px;
+    .top-banner p {
+        color: #CBD5E1 !important;
+        font-size: 13.5px !important;
+        margin: 0 !important;
     }
     .sec-header {
-        background-color: #F1F5F9;
-        color: #0F172A;
-        padding: 8px 14px;
+        background-color: #DBEAFE;
+        color: #1E3A8A;
+        padding: 9px 14px;
         font-weight: 700;
         font-size: 14px;
-        border-radius: 4px;
-        border-left: 4px solid #1E3A8A;
-        margin-top: 10px;
+        border-radius: 5px;
+        margin-top: 14px;
+        margin-bottom: 10px;
+        border-left: 4px solid #1D4ED8;
+    }
+    .tip-card {
+        background-color: #FFFFFF;
+        border: 1px solid #CBD5E1;
+        border-top: 4px solid #1E3A8A;
+        border-radius: 6px;
+        padding: 14px;
         margin-bottom: 12px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .tip-title {
+        font-weight: 700;
+        color: #0F172A;
+        font-size: 14px;
+        margin-bottom: 6px;
+    }
+    .tip-body {
+        color: #334155;
+        font-size: 12.8px;
+        line-height: 1.45;
+        margin-bottom: 10px;
+    }
+    .tip-source {
+        background-color: #F1F5F9;
+        border-left: 3px solid #0284C7;
+        padding: 6px 10px;
+        font-size: 11.8px;
+        color: #0F172A;
+        font-weight: 600;
+    }
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="select"] > div {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        border: 1px solid #94A3B8 !important;
     }
     </style>
-    <div class="corp-banner">
-        <div class="corp-title">HUB DE APLICACIONES Y SUPER EXTRACTOR DE CONTEXTO (GITHUB + MOODLE ULAGOS)</div>
-        <div class="corp-sub">Conectado en tiempo real a la API de GitHub y Bóveda Instantánea de Cátedras, Excels y Libros PDF para IA</div>
-    </div>
     """,
     unsafe_allow_html=True,
 )
 
-USUARIO = "mauriciovargas1516-ux"
-ARCHIVO_BOVEDA_MOODLE = "Todos_Los_Ramos_Destilados_TXT.zip"
-EXTENSIONES_GIT = (".py", ".md", ".txt", ".rmd", ".toml", ".json")
-EXTENSIONES_IGNORADAS_MOODLE = (
-    ".mp4", ".avi", ".mov", ".mkv", ".zip", ".rar", ".exe", ".png", ".jpg", ".jpeg", ".mp3", ".wav"
-)
 
-APPS_STREAMLIT = {
-    "PROYECTOS-2026": ("Suite Proyectos 2026", "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/"),
-    "FINANZAS-AVANZADAS-2026": ("Finanzas Avanzadas 2026", "https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/"),
-    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": ("Gestión Territorial 2026", "https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/"),
-    "GESTION-TRIBUTARIA-2026": ("Gestión Tributaria 2026", "https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/"),
+# ==============================================================================
+# 2. CATÁLOGO OFICIAL DE RAMOS, REPOSITORIOS Y LITERATURA (CON PÁGINAS EXACTAS)
+# ==============================================================================
+
+GITHUB_USER_DEFAULT = "mauriciovargas1516-ux"
+
+MAPA_REPOS_A_RAMOS = {
+    "PROYECTOS-2026": {
+        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
+        "sigla_archivo": "EVALUACION_INTEGRADA_PROYECTOS_FDIC26",
+        "corto": "PROYECTOS",
+        "docente": "Dra. Luz María Ferrada B.",
+        "app_url": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
+        "repo_url": "https://github.com/mauriciovargas1516-ux/PROYECTOS-2026",
+        "descripcion": "Formulación, evaluación financiera privada, evaluación social SNI/MIDESO 2026 y valoración ambiental RA1/RA2.",
+    },
+    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": {
+        "ramo": "Desarrollo y Gestión Territorial",
+        "sigla_archivo": "DESARROLLO_Y_GESTION_TERRITORIAL",
+        "corto": "TERRITORIAL",
+        "docente": "Prof. Claudio Mancilla",
+        "app_url": "https://desarrollo-y-gestion-territorial-2026.streamlit.app/",
+        "repo_url": "https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026",
+        "descripcion": "Indicadores de especialización regional (Qij, CE, Silva Lira), Gini/Theil, Ordenamiento Territorial (Guttman/Rondinelli) y Redes UCINET/Dini.",
+    },
+    "FINANZAS-AVANZADAS-2026": {
+        "ramo": "Finanzas Avanzadas",
+        "sigla_archivo": "FINANZAS_AVANZADAS",
+        "corto": "FINANZAS",
+        "docente": "Prof.ª Camila Bustos Rosas",
+        "app_url": "https://finanzas-avanzadas-2026.streamlit.app/",
+        "repo_url": "https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026",
+        "descripcion": "Modelo Consumo-Inversión de Fisher, DuPont/PGU, Frontera Eficiente de Markowitz (5 vs. 30 títulos IPSA), CAPM y Beta de Hamada.",
+    },
+    "FINANZAS-AVANZADAS": {
+        "ramo": "Finanzas Avanzadas",
+        "sigla_archivo": "FINANZAS_AVANZADAS",
+        "corto": "FINANZAS",
+        "docente": "Prof.ª Camila Bustos Rosas",
+        "app_url": "https://finanzas-avanzadas-2026.streamlit.app/",
+        "repo_url": "https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS",
+        "descripcion": "Simulación financiera, teoría de carteras de Markowitz, CAPM, WACC y valoración bajo incertidumbre.",
+    },
+    "GESTION-TRIBUTARIA-2026": {
+        "ramo": "Gestión Tributaria para la Toma de Decisiones",
+        "sigla_archivo": "GESTION_TRIBUTARIA_TOMA_DECISIONES",
+        "corto": "TRIBUTARIA",
+        "docente": "Prof. RVS",
+        "app_url": "https://gestion-tributaria-2026.streamlit.app/",
+        "repo_url": "https://github.com/mauriciovargas1516-ux/GESTION-TRIBUTARIA-2026",
+        "descripcion": "Determinación de IVA (D.L. 825), Libros de Compras/Ventas/Honorarios/Remuneraciones, F29 e Infracciones Art. 97 Código Tributario.",
+    },
+    "github-context-extractor": {
+        "ramo": "Hub Central & Extractor de Contexto Académico",
+        "sigla_archivo": "HUB_EXTRACTOR_CONTEXTO_ULAGOS",
+        "corto": "HUB",
+        "docente": "Portafolio Ingeniería Comercial ULagos",
+        "app_url": "https://app-context-extractor-d8x5kwfdodzvmx7m3vean.streamlit.app/",
+        "repo_url": "https://github.com/mauriciovargas1516-ux/github-context-extractor",
+        "descripcion": "Motor centralizado de compilación vía API REST de GitHub y biblioteca metodológica con citas de cátedra.",
+    },
+}
+
+CUADRILLAS_LITERATURA_POR_RAMO = {
+    "Evaluación Integrada de Proyectos (FDIC26)": {
+        "docente": "Dra. Luz María Ferrada B.",
+        "tarjetas": [
+            {
+                "titulo": "1. Precios Sociales Vigentes SNI 2026 (Mano de Obra, Divisa y TSD)",
+                "formula": r"TSD = 5,5\% \quad | \quad PSMO = Salario_{Bruto} \times FCSMO \quad (MOC=0,97;\; MOSC=0,95;\; MONC=0,91;\; Divisa=1,00)",
+                "tip": (
+                    "El Precio Social de la Mano de Obra (PSMO) es siempre menor o igual al salario privado. "
+                    "Según la tabla CIUO-08 del SNI, los choferes de buses interregionales u operadores de máquinas "
+                    "corresponden a Mano de Obra Semicalificada (MOSC = 0,95), no a MONC. Además, aunque un terreno sea "
+                    "municipal, siempre debe valorizarse a su costo de oportunidad social."
+                ),
+                "fuente": (
+                    "Ministerio de Desarrollo Social y Familia [MDSF] (2026), 'Precios-Sociales-2026.pdf', Cap. 1, "
+                    "Tablas 1.1 a 1.4, págs. 4-6; y Dra. Luz María Ferrada (2026), 'Proceso2 RA1.pdf', Preguntas I.11, I.15 y II.3, págs. 1-2."
+                ),
+            },
+            {
+                "titulo": "2. Valor Social de la Producción (Fontaine): Eficiencia vs. Agencia",
+                "formula": r"VSP = AD + LR = VPP + \Delta EC + \Delta EP \quad | \quad P_{social} = \frac{P_0 + P_1}{2}",
+                "tip": (
+                    "En un mercado sin distorsiones ni comercio exterior, al entrar el proyecto la oferta se desplaza "
+                    "(Q' = Q + Q_proy) y el precio baja de P0 a P1. El Aumento en Disponibilidad (AD) se mide bajo la curva "
+                    "de demanda entre Q0 y Qd1; la Liberación de Recursos (LR) se mide bajo la curva de oferta antigua entre Qo1 y Q0."
+                ),
+                "fuente": (
+                    "Ernesto R. Fontaine (2008), 'Evaluación Social de Proyectos' (13.ª ed.), Cap. V (págs. 199-255) y "
+                    "Cap. VII (págs. 373-385); y Dra. Luz María Ferrada (2026), 'Clase2.pdf', Ejercicio Mercado de la Leche, láminas 15-25."
+                ),
+            },
+            {
+                "titulo": "3. Cuándo elegir entre VAN, VAC y CAE en el SNI",
+                "formula": r"VAC = \sum_{t=0}^{n} \frac{C_t}{(1 + r)^t} \quad | \quad CAE = VAC \cdot \frac{r(1 + r)^n}{(1 + r)^n - 1}",
+                "tip": (
+                    "Usa VAN cuando las alternativas tienen igual vida útil y los beneficios son medibles. "
+                    "Usa VAC cuando los beneficios son iguales o difíciles de medir y las alternativas tienen igual horizonte. "
+                    "Usa CAE (o CAE por producto/tonelada) cuando las alternativas tienen distinta vida útil o distinto volumen de producción."
+                ),
+                "fuente": (
+                    "Dra. Luz María Ferrada (2026), 'Clase2.pdf' (lámina 12) y 'Proceso2 RA1.pdf' (Sección II.1, pág. 2); "
+                    "MDSF (2025), 'METODOLOGIA-GENERAL-2025.pdf', Sección III.4, págs. 55-58; y 'Metodologia_GIRS_vf.pdf', pág. 10."
+                ),
+            },
+            {
+                "titulo": "4. Árboles Causales, Población SNI y Matriz de Marco Lógico (MML)",
+                "formula": r"\text{Población Referencia} \supset \text{Población Afectada (Con Problema)} \supset \text{Población Objetivo}",
+                "tip": (
+                    "Nunca redactes el problema como 'falta de una solución' (ej. 'falta un camión recolector' o 'no hay consultorio'). "
+                    "En el Marco Lógico: (1) cada proyecto tiene un único Propósito (que nace del Objetivo Central del árbol), "
+                    "(2) los indicadores se dividen en Eficacia, Eficiencia, Calidad y Economía, y (3) a nivel de Actividades no se definen supuestos."
+                ),
+                "fuente": (
+                    "Ortegón, Pacheco y Roura (2005), 'Serie Manuales CEPAL N° 39', Cap. I, págs. 10-21; "
+                    "Dra. Luz María Ferrada (2026), 'Presentación_2.pdf' (láminas 5-21), 'Clase3.pdf' (láminas 7-8) y 'MARCO LOGICO.pdf' (láminas 6-21)."
+                ),
+            },
+            {
+                "titulo": "5. Valoración Económica Ambiental (RA2) y Gases de Efecto Invernadero",
+                "formula": r"CO_2eq = t_{CO_2} + 28 \cdot t_{CH_4} + 265 \cdot t_{N_2O} \quad | \quad P_{Social\,CO_2} = \$71.801\text{ CLP/t}",
+                "tip": (
+                    "Bienes ambientales son tangibles y se gastan o transforman al usarse (agua, madera); servicios ambientales "
+                    "son funciones ecosistémicas intangibles que no se gastan (belleza escénica, captura de carbono). "
+                    "Para valorar recreación con Costo de Viaje en Chile, el VST Deportivo/Recreativo 2026 es de $2.792 CLP/h-pax."
+                ),
+                "fuente": (
+                    "Radoslav Barzev (2002), 'GuiaVEdelosBSA.pdf', Cap. I (Tablas 1-2, págs. 12-17) y Cap. IV (MVC, Costo de Viaje y "
+                    "Precios Hedónicos, págs. 59-78); y MDSF (2026), 'Precios-Sociales-2026.pdf', Cap. 2.4 (pág. 11) y Cap. 5 (págs. 17-19)."
+                ),
+            },
+            {
+                "titulo": "6. Flujo Privado Puro vs. Flujo Financiado y Capital de Trabajo",
+                "formula": r"Cuota = P \cdot \frac{r(1+r)^n}{(1+r)^n - 1} \quad | \quad CT_{desfase} = \frac{\text{Costos Anuales} \times \text{Días Desfase}}{365}",
+                "tip": (
+                    "En el flujo con deuda, solo los intereses bancarios se restan antes de impuestos (creando escudo fiscal), "
+                    "mientras que la amortización del principal se resta después de impuestos. Los costos hundidos son obligaciones "
+                    "contraídas en el pasado e inevitables, por lo que son irrelevantes en un flujo incremental."
+                ),
+                "fuente": (
+                    "Dra. Luz María Ferrada (2026), 'Clase1 (18 ago).pdf', láminas 17-18 (Capital de Trabajo), "
+                    "láminas 23-32 (Flujo Puro vs. Financiado y Tabla de Crédito) y láminas 33-36 (Flujos Incrementales y Costos Hundidos)."
+                ),
+            },
+        ],
+    },
+    "Finanzas Avanzadas": {
+        "docente": "Prof.ª Camila Bustos Rosas",
+        "tarjetas": [
+            {
+                "titulo": "1. Modelo Consumo-Inversión y Principio de Separación de Fisher",
+                "formula": r"U = f(C_0, C_1) \quad | \quad \text{Óptimo Productivo: } RMgI = r_f \quad | \quad \text{Óptimo Consumo: } TMS(C_0, C_1) = -(1 + r_f)",
+                "tip": (
+                    "En un mercado de capitales perfecto (sin fricciones, costos de transacción ni impuestos), la decisión de inversión "
+                    "de la empresa es objetiva y delegable a los administradores (aceptar proyectos hasta que la rentabilidad marginal "
+                    "iguale la tasa de mercado rf), independientemente de las preferencias subjetivas de consumo intertemporal de cada dueño."
+                ),
+                "fuente": (
+                    "Camila Bustos Rosas (2026), 'Consumo - Inversión.pdf', láminas 2-10; y "
+                    "Brealey, Myers y Allen (2010), 'Principios de Finanzas Corporativas' (9.ª ed.), Cap. 2, Sección 2.2, págs. 19-22."
+                ),
+            },
+            {
+                "titulo": "2. Actitudes frente al Riesgo, Juego Justo y Valor de la Información",
+                "formula": r"E(W) = \sum_{i=1}^{n} Pr_i \cdot W_i \quad | \quad \sigma = \sqrt{\sum_{i=1}^{n} Pr_i \cdot [W_i - E(W)]^2}",
+                "tip": (
+                    "Un juego es 'justo' cuando la riqueza esperada de aceptarlo es exactamente igual a la riqueza segura inicial. "
+                    "El inversionista averso al riesgo tiene utilidad marginal positiva pero decreciente y siempre rechaza un juego justo. "
+                    "El valor de la información perfecta jamás puede superar el costo de tomar una mala decisión sin ella."
+                ),
+                "fuente": (
+                    "Camila Bustos Rosas (2026), 'Relación riesgo rentabilidad.pdf', láminas 7-21; y "
+                    "'Guía introductoria - Finanzas.pdf', Ejercicios 1 al 5, pág. 1."
+                ),
+            },
+            {
+                "titulo": "3. Poder Generador de Utilidades (PGU) y Descomposición DuPont",
+                "formula": r"PGU = \underbrace{\left(\frac{\text{Resultado Operacional}}{\text{Ventas}}\right)}_{\text{Margen Operacional}} \times \underbrace{\left(\frac{\text{Ventas}}{\text{Activos Operacionales}}\right)}_{\text{Rotación de Activos}}",
+                "tip": (
+                    "El administrador financiero enfrenta el dilema permanente entre Liquidez (capacidad de pagar deudas de corto plazo, "
+                    "clave para sobrevivir) y Rentabilidad (capacidad de generar fondos futuros). El riesgo total del accionista suma "
+                    "el riesgo operacional (variabilidad de las ventas/PGU) más el riesgo financiero (carga fija por intereses de deuda)."
+                ),
+                "fuente": (
+                    "Camila Bustos Rosas (2026), 'Relación riesgo rentabilidad.pdf', láminas 23-35; "
+                    "Ross, Westerfield y Jordan (2010), Cap. 3 (pág. 64); y Gitman y Zutter (2012), Cap. 3, págs. 73-84."
+                ),
+            },
+            {
+                "titulo": "4. Teoría de la Cartera de Markowitz y Taller Frontera Eficiente (252 días)",
+                "formula": r"E(R_p) = \sum_{i=1}^{n} w_i E(R_i) \quad | \quad \sigma_p = \sqrt{w_A^2 \sigma_A^2 + w_B^2 \sigma_B^2 + 2 w_A w_B \rho_{AB} \sigma_A \sigma_B} \quad | \quad \sigma_{anual} = \sigma_{diaria} \sqrt{252}",
+                "tip": (
+                    "Mientras la correlación sea menor a +1 (rho < 1), la desviación estándar del portafolio es estrictamente menor "
+                    "que el promedio ponderado de las desviaciones individuales. En el Taller del IPSA (Dupla 13: Parque Arauco, Andina-B, "
+                    "Cenco Malls, Banco de Chile, Vapores), los precios faltantes se rellenan con el cierre del día anterior (nunca con cero)."
+                ),
+                "fuente": (
+                    "Camila Bustos Rosas (2026), 'Teoría de mercado de capitales.pdf' (láminas 11-36), "
+                    "'Instrucciones taller frontera eficiente.pdf' (págs. 1-2) y 'Taller Frontera Eficiente Ing Comercial.xlsx' (Hoja División cartera)."
+                ),
+            },
+            {
+                "titulo": "5. Modelo CAPM, Riesgo Sistemático y Ecuación de Hamada",
+                "formula": r"R_e = R_f + \beta_L (R_m - R_f) \quad | \quad \beta_i = \frac{Cov(R_i, R_m)}{Var(R_m)} \quad | \quad \beta_L = \beta_U \left[1 + (1 - t)\frac{B}{S}\right]",
+                "tip": (
+                    "La diversificación elimina el riesgo no sistemático (específico), por lo que el mercado solo premia el riesgo "
+                    "sistemático medido por Beta. Si una empresa no transa en bolsa, se toma la Beta apalancada (Beta_L) de un comparable, "
+                    "se divide por [1 + (1-t)(B/S)] para obtener la Beta pura del negocio (Beta_U) y se reapalanca con la deuda objetivo."
+                ),
+                "fuente": (
+                    "Camila Bustos Rosas (2026), 'Teoría de mercado de capitales.pdf', láminas 37-50; y "
+                    "Brealey, Myers y Allen (2010), Cap. 8 y 9 (págs. 189-225) y Cap. 19."
+                ),
+            },
+        ],
+    },
+    "Desarrollo y Gestión Territorial": {
+        "docente": "Prof. Claudio Mancilla",
+        "tarjetas": [
+            {
+                "titulo": "1. Modelos Clásicos de Localización: Von Thünen y Triángulo de Weber",
+                "formula": r"LR = Y(m - c) - Y \cdot t \cdot d \quad | \quad IM = \frac{\text{Peso Materias Primas Localizadas}}{\text{Peso Producto Final}}",
+                "tip": (
+                    "En Von Thünen la renta agrícola (LR) es un residuo tras descontar costos de transporte (Y*t*d), generando anillos concéntricos. "
+                    "En Weber, si el Índice Material IM > 1 (insumos pierden peso), la planta se acerca a la materia prima; si IM < 1, "
+                    "se acerca al mercado. Un sitio con mano de obra barata atrae a la firma solo si está dentro de la isodápana crítica."
+                ),
+                "fuente": (
+                    "Néstor Duch Brown (Universitat de Barcelona), 'La_teoria_de_la_localizacion.pdf', "
+                    "Sección 1.1 (Von Thünen, págs. 6-10) y Sección 1.2 (Launhardt-Weber e Isodápanas, págs. 10-16)."
+                ),
+            },
+            {
+                "titulo": "2. Competencia Espacial (Hotelling), Lugares Centrales (Christaller-Lösch) y Krugman",
+                "formula": r"\text{Christaller: Umbral (Demanda mínima)} \;\text{vs.}\; \text{Rango (Distancia máxima)} \quad | \quad \text{Krugman: } p^*(x) = \frac{a W(x)}{\rho}",
+                "tip": (
+                    "En Hotelling (demanda inelástica en mercado lineal), dos firmas convergen al centro aunque el óptimo social sea "
+                    "ubicarse en los cuartiles (1/4 y 3/4). Con productos diferenciados (D'Aspremont et al., 1979), aglomerarse desata "
+                    "una guerra de precios a lo Bertrand. En Krugman (1995), la aglomeración surge de fuerzas centrípetas (encadenamientos, "
+                    "mercado laboral conjunto, spillovers) frente a fuerzas centrífugas (rentas del suelo, congestión)."
+                ),
+                "fuente": (
+                    "Néstor Duch Brown, 'La_teoria_de_la_localizacion.pdf', Sección 1.3 (Hotelling, págs. 17-19), "
+                    "Sección 1.4 (Christaller-Lösch, págs. 19-23), Sección 1.5 (pág. 24) y Sección 2.3-3 (Krugman, págs. 42-66)."
+                ),
+            },
+            {
+                "titulo": "3. Indicadores de Ordenamiento Territorial: Primacía, Guttman/Rondinelli y Aislamiento",
+                "formula": r"IP = \frac{P_1}{P_2 + P_3 + P_4} \quad | \quad \text{Matriz de Rondinelli: } 1 = \text{Presente},\; 0 = \text{Ausente}",
+                "tip": (
+                    "Un Índice de Primacía alto refleja macrocefalia urbana en la comuna o ciudad principal. "
+                    "Para construir la Escala de Guttman / Matriz de Rondinelli en las 10 comunas más pobladas (mínimo 7 variables), "
+                    "las variables elegidas deben mostrar diferencias reales entre comunas (si todas tienen 1, debes cambiar la variable)."
+                ),
+                "fuente": (
+                    "Prof. Claudio Mancilla (2024/2026), '06 OT 2024.pdf' (láminas 10-15), 'Unidad 5. Ordenamiento Territorial.pdf' (pág. 1) "
+                    "y 'Ejemplo Matriz Rondinelli OT.xlsx'; y SUBDERE-CEPAL (2011), 'PROT', págs. 11-22."
+                ),
+            },
+            {
+                "titulo": "4. Redes Empresariales (Dini 2010), UCINET y Cadenas de Valor",
+                "formula": r"\text{Densidad Red Dirigida} = \frac{L}{N(N - 1)} \quad (\text{con diagonal } A_{ii} = 0)",
+                "tip": (
+                    "En el trabajo de campo de Cadenas de Valor y Redes (Control 4), entrevista a 3 actores de al menos 2 eslabones "
+                    "(1 gremio + 2 empresas). Regla metodológica del profesor: jamás sugieras que 'debe existir un clúster' ni hables "
+                    "de 'debilidades'; pregunta por 'desafíos o aspectos por fortalecer'."
+                ),
+                "fuente": (
+                    "Marco Dini (2010), 'Competitividad, redes de empresas y cooperación empresarial' (CEPAL); "
+                    "Prof. Claudio Mancilla (2026), 'Unidad 5. Redes y Cadena de Valor.dcx.pdf', págs. 1-4; y '20210827 MIPE y Ecosistema en Los Lagos.pdf', págs. 6-18."
+                ),
+            },
+        ],
+    },
+    "Gestión Tributaria para la Toma de Decisiones": {
+        "docente": "Prof. RVS",
+        "tarjetas": [
+            {
+                "titulo": "1. Determinación Mensual del IVA, Boletas y Crédito Fiscal (D.L. N° 825)",
+                "formula": r"\text{Neto Boleta} = \frac{\text{Total Bruto}}{1,19} \quad | \quad \text{Remanente UTM} = \frac{\text{Remanente CLP}}{\text{UTM}_{\text{mes declaración}}}",
+                "tip": (
+                    "Desde la Ley N° 21.420 (2023), todos los servicios remunerados son afectos a IVA salvo exención expresa (como Sociedades "
+                    "de Profesionales o educación/salud). El IVA en la compra de automóviles o station wagons NO da derecho a crédito fiscal "
+                    "(Art. 23 N° 4 D.L. 825) y constituye un mayor costo o gasto ('IVA no recuperable'), a diferencia de un furgón de reparto o grúa horquilla."
+                ),
+                "fuente": (
+                    "Prof. RVS (2026), 'Apunte IVA 2026.pdf' (págs. 1-8), 'IVA y Toma de Decisiones.pdf' (págs. 1-6) "
+                    "y 'Ejerc-03 / Ejerc-04 Ejercicio IVA (Datos).xlsx' (Hojas Libro Compras y Resumen IVA)."
+                ),
+            },
+            {
+                "titulo": "2. Retenciones en Formulario 29: Honorarios (2026), Remuneraciones y PPM",
+                "formula": r"\text{Retención BHE 2026} = 15,25\% \quad | \quad \text{Honorario Bruto} = \frac{\text{Líquido}}{0,8475} \quad | \quad \text{Tope Gratif.} = \frac{4,75 \times IMM}{12}",
+                "tip": (
+                    "Las Boletas de Honorarios Electrónicas no llevan IVA, pero su retención de 2.ª Categoría (15,25% en 2026) se entera "
+                    "en el código 151 del F29. El Impuesto Único de Segunda Categoría de los trabajadores se calcula sobre la Base Tributable "
+                    "(Total Imponible menos AFP, Salud 7% y Seguro de Cesantía 0,6%) y se declara en el código 48 del F29."
+                ),
+                "fuente": (
+                    "Prof. RVS (2026), 'Ejerc-02 Ejercicio IVA (Pauta) 211026 (Datos).xlsx' (Hojas L-Honor, L-Remun y Form-29) "
+                    "y 'Ejerc-04 Ejercicio IVA (Datos).xlsx' (Hoja Parámetros, IMM = $553.553, Tope Gratificación = $219.115)."
+                ),
+            },
+            {
+                "titulo": "3. Infracciones y Delitos Tributarios (Art. 97 CT) y Responsabilidad Penal (Ley 20.393)",
+                "formula": r"\text{Art. 97 N° 4 CT (Facturas Falsas): Multa } 50\% \text{ a } 400\% \text{ del tributo eludido} + \text{Presidio}",
+                "tip": (
+                    "Contabilizar facturas por servicios inexistentes (caso 'Constructora del Sur S.A. / Global SpA') obliga a revertir "
+                    "el IVA Crédito Fiscal, rechaza el gasto en Renta, aplica intereses penales (1,5% mensual), configura delito tributario "
+                    "doloso bajo el Art. 97 N° 4 del Código Tributario y expone a la empresa a disolución o prohibición de contratar con el "
+                    "Estado bajo la Ley N° 20.393 si carece de un Modelo de Prevención de Delitos (MPD)."
+                ),
+                "fuente": (
+                    "Prof. RVS (2026), 'Caso GTTD Emision Facturas Falsas (Datos).pdf' (págs. 1-2), "
+                    "'Clase Infracciones Sanciones Delitos GTD.pdf' (láminas 4-21) y 'Clase Facultades Fiscalizadoras GTD.pdf' (láminas 4-16)."
+                ),
+            },
+        ],
+    },
+    "Introducción al Deporte Paralímpico": {
+        "docente": "Prof. Exal García Carrillo",
+        "tarjetas": [
+            {
+                "titulo": "1. Deficiencias Elegibles y Clasificación Funcional (Para Atletismo vs. Para Powerlifting)",
+                "formula": r"\text{Para Atletismo: Prefijos } T\text{ (Pista/Salto) y } F\text{ (Campo)} \quad | \quad \text{Para Powerlifting: Clase única por Peso Corporal}",
+                "tip": (
+                    "En Para Atletismo las clases agrupan por impacto funcional: F11-F13 (discapacidad visual), T35-T38 / F35-F38 (hipertonía, "
+                    "ataxia o atetosis como parálisis cerebral espástica ambulatoria), y T64 (amputación transtibial unilateral con prótesis). "
+                    "En cambio, World Para Powerlifting NO tiene clases por nivel de discapacidad ni permite discapacidad visual (caso Valentina): "
+                    "exige deficiencia elegible en tren inferior/cadera y agrupa en una clase única dividida solo por sexo y categoría de peso."
+                ),
+                "fuente": (
+                    "Prof. Exal García Carrillo (2026), 'Taller_II_Deporte_Paralimpico.pdf', Casos 1 (Martín), 2 (Carolina), "
+                    "3 (Diego) y 4 (Valentina), págs. 1-3."
+                ),
+            },
+            {
+                "titulo": "2. Estructura de la Entrevista y Análisis Teórico (Modelos e Inclusión)",
+                "formula": r"\text{Evaluación: } 60\% \text{ Informe Escrito (6 a 8 págs.)} + 40\% \text{ Exposición Oral (5 a 10 min)}",
+                "tip": (
+                    "El informe no debe ser una transcripción literal de las preguntas, sino una síntesis analítica organizada en los "
+                    "5 bloques (Trayectoria, Discapacidad y deporte, Entorno y accesibilidad, Competición/clasificación y Reflexión) "
+                    "vinculada explícitamente con al menos dos conceptos teóricos del curso (ej. inclusión vs. integración, clasificación funcional)."
+                ),
+                "fuente": (
+                    "Prof. Exal García Carrillo (2026), 'Entrevista para deportista.pdf', Secciones 1 a 9, págs. 1-5."
+                ),
+            },
+        ],
+    },
 }
 
 
 # ==============================================================================
-# FUNCIONES DEL EXTRACTOR DE GITHUB
+# 3. FUNCIONES DE NOMENCLATURA PERSONALIZADA Y EXTRACCIÓN GITHUB API
 # ==============================================================================
-@st.cache_data(ttl=300)
-def obtener_repositorios(usuario):
-    url = f"https://api.github.com/users/{usuario}/repos?per_page=100&sort=updated"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(req) as resp:
+
+EXTENSIONES_TEXTO_PERMITIDAS = (
+    ".py", ".md", ".txt", ".toml", ".json", ".yaml", ".yml",
+    ".css", ".html", ".js", ".rmd", ".r", ".sql", ".sh", ".csv"
+)
+
+
+def obtener_meta_repo(nombre_repo, desc_api="", homepage_api=""):
+    if nombre_repo in MAPA_REPOS_A_RAMOS:
+        return MAPA_REPOS_A_RAMOS[nombre_repo]
+    limpio = re.sub(r"[^A-Za-z0-9]+", "_", nombre_repo).strip("_").upper()
+    return {
+        "ramo": f"Repositorio Académico: {nombre_repo}",
+        "sigla_archivo": limpio,
+        "corto": limpio[:12],
+        "docente": "Universidad de Los Lagos",
+        "app_url": homepage_api or "No especificada",
+        "repo_url": f"https://github.com/{GITHUB_USER_DEFAULT}/{nombre_repo}",
+        "descripcion": desc_api or "Repositorio de código y automatización en Python.",
+    }
+
+
+def construir_nombre_y_encabezado_personalizado(repos_seleccionados, usuario_gh):
+    """
+    Genera un nombre de archivo .txt y un encabezado interno personalizados según el ramo
+    o la combinación exacta de repositorios seleccionados por el usuario.
+    """
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    if not repos_seleccionados:
+        return f"CONTEXTO_PORTAFOLIO_{fecha_hoy}.txt", "EXTRACCIÓN DE PORTAFOLIO VACÍA\n"
+
+    if len(repos_seleccionados) == 1:
+        r_nom = repos_seleccionados[0]
+        meta = obtener_meta_repo(r_nom)
+        nombre_archivo = f"CONTEXTO_{meta['sigla_archivo']}_{fecha_hoy}.txt"
+        encabezado = (
+            "=" * 94 + "\n"
+            f"CONTEXTO DE CÁTEDRA Y CÓDIGO FUENTE — ASIGNATURA: {meta['ramo'].upper()}\n"
+            f"Docente: {meta['docente']} | Repositorio GitHub: {r_nom}\n"
+            f"App Interactiva en Vivo: {meta['app_url']}\n"
+            f"Estudiante: Mauricio Alejandro Vargas Ortega ({usuario_gh}) | Fecha: {fecha_hoy}\n"
+            + "=" * 94 + "\n\n"
+        )
+        return nombre_archivo, encabezado
+
+    siglas = [obtener_meta_repo(r)["corto"] for r in repos_seleccionados[:4]]
+    sufijo = "_".join(siglas)
+    if len(repos_seleccionados) > 4:
+        sufijo += f"_Y_{len(repos_seleccionados) - 4}_MAS"
+    nombre_archivo = f"CONTEXTO_MULTIRAMO_{sufijo}_{fecha_hoy}.txt"
+
+    lista_ramos = "\n".join(
+        f"  * {r} -> {obtener_meta_repo(r)['ramo']} ({obtener_meta_repo(r)['docente']})"
+        for r in repos_seleccionados
+    )
+    encabezado = (
+        "=" * 94 + "\n"
+        f"EXTRACCIÓN MULTIRAMO PERSONALIZADA ({len(repos_seleccionados)} REPOSITORIOS SELECCIONADOS)\n"
+        f"Estudiante: Mauricio Alejandro Vargas Ortega ({usuario_gh}) | Fecha: {fecha_hoy}\n"
+        "Asignaturas y Repositorios incluidos en este archivo:\n"
+        f"{lista_ramos}\n"
+        + "=" * 94 + "\n\n"
+    )
+    return nombre_archivo, encabezado
+
+
+def formatear_cuadrilla_en_texto_plano(nombre_ramo):
+    """Convierte la cuadrilla bibliográfica de un ramo en texto estructurado para inyectar al .txt."""
+    if nombre_ramo not in CUADRILLAS_LITERATURA_POR_RAMO:
+        return ""
+    info = CUADRILLAS_LITERATURA_POR_RAMO[nombre_ramo]
+    lineas = [
+        "-" * 90,
+        f"CUADRILLA METODOLÓGICA Y RESPALDO EN LITERATURA OFICIAL: {nombre_ramo.upper()}",
+        f"Docente Cátedra ULagos: {info['docente']}",
+        "-" * 90,
+    ]
+    for t in info["tarjetas"]:
+        lineas.append(f"[*] {t['titulo']}")
+        lineas.append(f"    - Fórmula / Regla: {t['formula']}")
+        lineas.append(f"    - Tip de Cátedra : {t['tip']}")
+        lineas.append(f"    - Fuente Exacta  : {t['fuente']}")
+        lineas.append("")
+    lineas.append("-" * 90 + "\n")
+    return "\n".join(lineas)
+
+
+def _github_api_get(url, token=""):
+    req = urllib.request.Request(url)
+    req.add_header("Accept", "application/vnd.github.v3+json")
+    req.add_header("User-Agent", "ULagos-Academic-Context-Extractor")
+    if token.strip():
+        req.add_header("Authorization", f"token {token.strip()}")
+    with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def compilar_contexto_txt(usuario, repos_seleccionados, lista_repos):
-    bloques = [
-        "=" * 90,
-        f"SUPER EXTRACCIÓN EN VIVO DE PORTAFOLIO GITHUB: {usuario}",
-        "=" * 90,
-        "",
-    ]
-    for r in lista_repos:
-        nombre = r["name"]
-        if nombre not in repos_seleccionados:
-            continue
-        rama = r.get("default_branch", "main")
-        bloques.append(f"### REPOSITORIO: {nombre}")
-        bloques.append(f"Descripción: {r.get('description') or 'Sin descripción'}")
-        bloques.append(f"URL GitHub: {r['html_url']}")
-        if nombre in APPS_STREAMLIT:
-            bloques.append(f"App Streamlit en Vivo: {APPS_STREAMLIT[nombre][1]}")
-        bloques.append("-" * 90)
+@st.cache_data(ttl=300, show_spinner=False)
+def listar_repositorios_usuario(usuario, token=""):
+    url = f"https://api.github.com/users/{usuario}/repos?per_page=100&sort=updated"
+    datos = _github_api_get(url, token=token)
+    repos = []
+    for d in datos:
+        repos.append({
+            "name": d.get("name", ""),
+            "description": d.get("description") or "",
+            "html_url": d.get("html_url", ""),
+            "homepage": d.get("homepage") or "",
+            "default_branch": d.get("default_branch", "main"),
+            "updated_at": (d.get("updated_at") or "")[:10],
+        })
+    return repos
 
-        try:
-            url_tree = f"https://api.github.com/repos/{usuario}/{nombre}/git/trees/{rama}?recursive=1"
-            req_t = urllib.request.Request(url_tree, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req_t) as resp_t:
-                tree = json.loads(resp_t.read().decode("utf-8")).get("tree", [])
 
-            bloques.append("#### INVENTARIO DE ARCHIVOS:")
-            for item in tree:
-                if item["type"] == "blob":
-                    bloques.append(f"  - {item['path']} ({item.get('size', 0)} bytes)")
-            bloques.append("")
+def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatura=True):
+    nombre_repo = repo_info["name"]
+    rama = repo_info.get("default_branch", "main")
+    meta = obtener_meta_repo(nombre_repo, repo_info.get("description", ""), repo_info.get("homepage", ""))
 
-            for item in tree:
-                ruta = item["path"]
-                if item["type"] == "blob" and ruta.lower().endswith(EXTENSIONES_GIT) and item.get("size", 0) <= 300_000:
-                    url_raw = f"https://raw.githubusercontent.com/{usuario}/{nombre}/{rama}/{urllib.parse.quote(ruta)}"
-                    req_r = urllib.request.Request(url_raw, headers={"User-Agent": "Mozilla/5.0"})
-                    with urllib.request.urlopen(req_r) as resp_r:
-                        codigo = resp_r.read().decode("utf-8", errors="replace")
-                    bloques.append(f"#### ARCHIVO: {nombre}/{ruta}")
-                    bloques.append("-" * 70)
-                    bloques.append(codigo)
-                    bloques.append("")
-        except Exception as e:
-            bloques.append(f"[Error leyendo {nombre}: {e}]")
-        bloques.append("=" * 90 + "\n")
+    bloques = []
+    bloques.append(f"### REPOSITORIO: {nombre_repo} | ASIGNATURA: {meta['ramo']}")
+    bloques.append(f"Docente: {meta['docente']}")
+    bloques.append(f"Descripción: {repo_info.get('description') or meta['descripcion']}")
+    bloques.append(f"URL GitHub: {repo_info.get('html_url') or meta['repo_url']}")
+    if meta["app_url"] and meta["app_url"] != "No especificada":
+        bloques.append(f"App Streamlit en Vivo: {meta['app_url']}")
+    bloques.append("-" * 90)
+
+    if incluir_literatura and meta["ramo"] in CUADRILLAS_LITERATURA_POR_RAMO:
+        bloques.append(formatear_cuadrilla_en_texto_plano(meta["ramo"]))
+
+    url_tree = f"https://api.github.com/repos/{usuario}/{nombre_repo}/git/trees/{rama}?recursive=1"
+    tree_data = _github_api_get(url_tree, token=token)
+    items = [x for x in tree_data.get("tree", []) if x.get("type") == "blob"]
+
+    bloques.append("#### INVENTARIO DE ARCHIVOS:")
+    for it in items:
+        bloques.append(f"  - {it['path']} ({it.get('size', 0)} bytes)")
+    bloques.append("")
+
+    for it in items:
+        ruta_arch = it["path"]
+        if ruta_arch.lower().endswith(EXTENSIONES_TEXTO_PERMITIDAS):
+            bloques.append(f"#### ARCHIVO: {nombre_repo}/{ruta_arch}")
+            bloques.append("-" * 70)
+            try:
+                blob_url = it["url"]
+                blob_json = _github_api_get(blob_url, token=token)
+                contenido_b64 = blob_json.get("content", "")
+                texto_decodificado = base64.b64decode(contenido_b64).decode("utf-8", errors="replace")
+                bloques.append(texto_decodificado)
+            except Exception as exc:
+                bloques.append(f"[Aviso: No se pudo decodificar {ruta_arch}: {exc}]")
+            bloques.append("\n")
 
     return "\n".join(bloques)
 
 
 # ==============================================================================
-# FUNCIONES DEL DESTILADOR DE MOODLE Y LIBROS PDF
+# 4. RENDERIZADOR DE CUADRILLAS INFORMATIVAS CON CITAS DE LA LITERATURA
 # ==============================================================================
-def leer_paginas_pdf_bytes(data_bytes: bytes, nombre_archivo: str) -> list:
-    try:
-        lector = PdfReader(io.BytesIO(data_bytes))
-        paginas = []
-        for idx, pag in enumerate(lector.pages, start=1):
-            txt = (pag.extract_text() or "").strip()
-            if txt:
-                paginas.append((idx, txt))
-        return paginas if paginas else [(1, f"[PDF sin texto seleccionable: {nombre_archivo}]")]
-    except Exception as e:
-        return [(1, f"[Error leyendo PDF {nombre_archivo}: {e}]")]
 
-
-def extraer_excel_con_formulas(data_bytes: bytes, nombre_archivo: str) -> str:
-    salida = []
-    if nombre_archivo.lower().endswith(".xlsx"):
-        try:
-            wb_val = openpyxl.load_workbook(io.BytesIO(data_bytes), data_only=True)
-            wb_for = openpyxl.load_workbook(io.BytesIO(data_bytes), data_only=False)
-            for hoja in wb_val.sheetnames:
-                ws_v = wb_val[hoja]
-                ws_f = wb_for[hoja]
-                salida.append(f"### Hoja Excel: {hoja} ({ws_v.max_row} filas x {ws_v.max_column} columnas)")
-                max_r = min(ws_v.max_row, 120)
-                max_c = min(ws_v.max_column, 20)
-                for r in range(1, max_r + 1):
-                    celdas = []
-                    tiene_dato = False
-                    for c in range(1, max_c + 1):
-                        v = ws_v.cell(r, c).value
-                        f = ws_f.cell(r, c).value
-                        if v is not None or f is not None:
-                            tiene_dato = True
-                        if isinstance(f, str) and f.startswith("="):
-                            celdas.append(f"{v} [fx: {f}]")
-                        else:
-                            celdas.append("" if v is None else str(v))
-                    if tiene_dato:
-                        salida.append(" | ".join(celdas))
-                salida.append("")
-            return "\n".join(salida)
-        except Exception:
-            pass
-
-    try:
-        xl = pd.ExcelFile(io.BytesIO(data_bytes))
-        for h in xl.sheet_names:
-            df = xl.parse(h).head(100)
-            salida.append(f"### Hoja Excel: {h}\n{df.to_string(index=False)}\n")
-        return "\n".join(salida)
-    except Exception as e:
-        return f"[No se pudo leer Excel {nombre_archivo}: {e}]"
-
-
-def extraer_word_bytes(data_bytes: bytes, nombre_archivo: str) -> str:
-    try:
-        doc = Document(io.BytesIO(data_bytes))
-        bloques = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        for idx_t, t in enumerate(doc.tables, start=1):
-            bloques.append(f"\n[Tabla Word #{idx_t}]")
-            for row in t.rows:
-                bloques.append(" | ".join(c.text.strip().replace("\n", " ") for c in row.cells))
-        return "\n".join(bloques)
-    except Exception as e:
-        return f"[Error leyendo Word {nombre_archivo}: {e}]"
-
-
-def procesar_archivo_individual(nombre_arch: str, raw_bytes: bytes, modo_libros: str) -> str:
-    ext = os.path.splitext(nombre_arch)[1].lower()
-    peso_mb = len(raw_bytes) / (1024.0 * 1024.0)
-
-    if ext in EXTENSIONES_IGNORADAS_MOODLE:
-        return f"### ARCHIVO MULTIMEDIA OMITIDO: {nombre_arch} ({peso_mb:.2f} MB)\n"
-
-    encabezado = [
-        f"### DOCUMENTO DE CÁTEDRA: {nombre_arch} ({peso_mb:.2f} MB)",
-        "-" * 75,
-    ]
-
-    if ext == ".pdf":
-        paginas = leer_paginas_pdf_bytes(raw_bytes, nombre_arch)
-        n_pags = len(paginas)
-        es_libro_grande = (peso_mb >= 4.0) or (n_pags >= 80)
-
-        if es_libro_grande and "Índice" in modo_libros:
-            encabezado.append(
-                f"[LIBRO / MANUAL DE {n_pags} PÁGINAS DETECTADO — Mostrando las primeras 20 páginas (Índice y Marco General). "
-                f"Usa la Pestaña 3 para extraer capítulos específicos o el libro completo en tomos.]"
-            )
-            for num_p, txt_p in paginas[:20]:
-                encabezado.append(f"--- [{nombre_arch} | Página {num_p}] ---\n{txt_p}")
-        else:
-            for num_p, txt_p in paginas:
-                encabezado.append(f"--- [{nombre_arch} | Página {num_p}] ---\n{txt_p}")
-
-    elif ext in (".xlsx", ".xls"):
-        encabezado.append(extraer_excel_con_formulas(raw_bytes, nombre_arch))
-    elif ext == ".docx":
-        encabezado.append(extraer_word_bytes(raw_bytes, nombre_arch))
-    elif ext in (".txt", ".rmd", ".md", ".py", ".csv"):
-        encabezado.append(raw_bytes.decode("utf-8", errors="replace"))
-    else:
-        encabezado.append(f"[Archivo {ext} registrado en inventario]")
-
-    encabezado.append("\n" + "=" * 90 + "\n")
-    return "\n".join(encabezado)
-
-
-# ==============================================================================
-# I. BARRA SUPERIOR DE ACCESO RÁPIDO A LAS 4 PLATAFORMAS (SIN TEXTO CORTADO)
-# ==============================================================================
-st.markdown(
-    "<div class='sec-header'>I. PLATAFORMAS INTERACTIVAS DESPLEGADAS EN STREAMLIT CLOUD</div>",
-    unsafe_allow_html=True,
-)
-cols = st.columns(4)
-for idx, (_, (etiqueta_corta, link_app)) in enumerate(APPS_STREAMLIT.items()):
-    with cols[idx % 4]:
-        st.link_button(f"Abrir {etiqueta_corta}", link_app, use_container_width=True)
-
-# ==============================================================================
-# II. BÓVEDA INSTANTÁNEA EN EL REPOSITORIO (SE ACTIVA AL SUBIR EL ZIP DE 2 MB)
-# ==============================================================================
-if os.path.exists(ARCHIVO_BOVEDA_MOODLE):
+def renderizar_cuadrillas_ramo(nombre_ramo):
+    info = CUADRILLAS_LITERATURA_POR_RAMO[nombre_ramo]
     st.markdown(
-        "<div class='sec-header'>II. BÓVEDA MOODLE PRE-CARGADA (DESCARGA EN 1 CLIC SIN SUBIR ARCHIVOS)</div>",
+        f"<div class='sec-header'>{nombre_ramo} — Docente: {info['docente']}</div>",
         unsafe_allow_html=True,
     )
-    with zipfile.ZipFile(ARCHIVO_BOVEDA_MOODLE, "r") as zf_bov:
-        archivos_txt_boveda = sorted([n for n in zf_bov.namelist() if n.endswith(".txt")])
+    tarjetas = info["tarjetas"]
+    for i in range(0, len(tarjetas), 2):
+        cols = st.columns(2)
+        for j in range(2):
+            if i + j < len(tarjetas):
+                t = tarjetas[i + j]
+                with cols[j]:
+                    st.markdown(
+                        f"""
+                        <div class="tip-card">
+                            <div class="tip-title">{t['titulo']}</div>
+                            <div class="tip-body">{t['tip']}</div>
+                            <div class="tip-source">Ubicación en la Literatura: {t['fuente']}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    if t.get("formula"):
+                        st.latex(t["formula"])
 
-    c_bov1, c_bov2, c_bov3 = st.columns([1.8, 1.1, 1.1])
-    with c_bov1:
-        txt_elegido = st.selectbox(
-            "Selecciona el Ramo Destilado en la Bóveda:",
-            archivos_txt_boveda,
-            label_visibility="collapsed",
-        )
-    with c_bov2:
-        with zipfile.ZipFile(ARCHIVO_BOVEDA_MOODLE, "r") as zf_bov:
-            bytes_ramo = zf_bov.read(txt_elegido)
-        st.download_button(
-            label=f"Descargar {txt_elegido}",
-            data=bytes_ramo,
-            file_name=txt_elegido,
-            mime="text/plain",
-            type="primary",
-            use_container_width=True,
-        )
-    with c_bov3:
-        with open(ARCHIVO_BOVEDA_MOODLE, "rb") as f_z:
-            bytes_zip_total = f_z.read()
-        st.download_button(
-            label="Descargar ZIP Completo (Todos los Ramos)",
-            data=bytes_zip_total,
-            file_name=ARCHIVO_BOVEDA_MOODLE,
-            mime="application/zip",
-            use_container_width=True,
-        )
-
-st.divider()
 
 # ==============================================================================
-# NAVEGACIÓN POR PESTAÑAS (TÍTULOS COMPACTOS PARA EVITAR RECORTE LATERAL)
+# 5. INTERFAZ PRINCIPAL DE USUARIO (4 PESTAÑAS)
 # ==============================================================================
-tab_git, tab_moodle, tab_libros = st.tabs([
-    "1. Extractor GitHub (API en Vivo)",
-    "2. Destilador Moodle (ZIP Completo o Archivos)",
-    "3. Buscador en Libros PDF (Ross, Gitman, Fontaine, CEPAL)",
+
+st.markdown(
+    """
+    <div class="top-banner">
+        <h1>HUB DE APLICACIONES Y EXTRACTOR DE CONTEXTO ACADÉMICO POR RAMO (ULAGOS 2026)</h1>
+        <p>Compilación en vivo vía API REST de GitHub con nomenclatura dinámica por asignatura y cuadrillas metodológicas referenciadas a la literatura oficial de cátedra.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.sidebar:
+    st.markdown("### Configuración de Conexión")
+    usuario_gh = st.text_input("Usuario GitHub:", value=GITHUB_USER_DEFAULT)
+    token_default = ""
+    try:
+        token_default = st.secrets.get("GITHUB_TOKEN", "")
+    except Exception:
+        token_default = ""
+    token_gh = st.text_input(
+        "Token GitHub (Opcional para ampliar límite API):",
+        value=token_default,
+        type="password",
+    )
+    incluir_lit_en_txt = st.checkbox(
+        "Incluir Cuadrilla de Literatura y Páginas Exactas dentro del .TXT descargado",
+        value=True,
+    )
+    if st.button("Actualizar Lista de Repositorios", use_container_width=True):
+        st.cache_data.clear()
+        st.rerun()
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "1. Extractor Personalizado por Ramo (GitHub API)",
+    "2. Cuadrillas Informativas y Literatura Oficial",
+    "3. Directorio de Plataformas Streamlit en Vivo",
+    "4. Archivos de Cátedra Destilados en Repositorio",
 ])
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 1: GITHUB API
+# PESTAÑA 1: EXTRACTOR PERSONALIZADO POR RAMO
 # ------------------------------------------------------------------------------
-with tab_git:
-    repos = obtener_repositorios(USUARIO)
-    nombres_todos = [r["name"] for r in repos]
-
+with tab1:
     st.markdown(
-        "<div class='sec-header'>EMPAQUETAR REPOSITORIOS DE GITHUB EN ARCHIVO MAESTRO (.TXT) PARA IA</div>",
+        "<div class='sec-header'>1. SELECCIÓN DE RAMOS / REPOSITORIOS Y NOMENCLATURA PERSONALIZADA</div>",
         unsafe_allow_html=True,
     )
-    seleccion = st.multiselect(
-        "Repositorios incluidos en el archivo de contexto:",
-        nombres_todos,
-        default=nombres_todos,
+
+    try:
+        lista_repos = listar_repositorios_usuario(usuario_gh, token=token_gh)
+    except Exception as e:
+        st.error(f"No fue posible consultar la API de GitHub en este momento: {e}")
+        lista_repos = []
+
+    if lista_repos:
+        mapa_objetos_repo = {r["name"]: r for r in lista_repos}
+        nombres_disponibles = list(mapa_objetos_repo.keys())
+
+        # Filtro rápido por asignatura conocida o selección libre
+        c_filtro, c_sel = st.columns([1.3, 2.7])
+        with c_filtro:
+            modo_seleccion = st.radio(
+                "Modo de empaquetado:",
+                options=[
+                    "Por Ramo / Asignatura Específica",
+                    "Selección Manual de Repositorios",
+                    "Portafolio Completo (Todos)",
+                ],
+            )
+
+        with c_sel:
+            if modo_seleccion == "Por Ramo / Asignatura Específica":
+                opciones_ramos = [
+                    f"{k} — {v['ramo']}"
+                    for k, v in MAPA_REPOS_A_RAMOS.items()
+                    if k in mapa_objetos_repo
+                ]
+                if not opciones_ramos:
+                    opciones_ramos = nombres_disponibles
+                elegido_ramo = st.selectbox("Selecciona la Asignatura / Repositorio a descargar:", options=opciones_ramos)
+                repo_clave = elegido_ramo.split(" — ")[0].strip()
+                repos_seleccionados = [repo_clave] if repo_clave in mapa_objetos_repo else [nombres_disponibles[0]]
+            elif modo_seleccion == "Selección Manual de Repositorios":
+                default_init = ["PROYECTOS-2026"] if "PROYECTOS-2026" in nombres_disponibles else nombres_disponibles[:1]
+                repos_seleccionados = st.multiselect(
+                    "Elige uno o más repositorios (el archivo adoptará sus nombres):",
+                    options=nombres_disponibles,
+                    default=default_init,
+                )
+            else:
+                repos_seleccionados = nombres_disponibles
+                st.info(f"Se empaquetarán los {len(repos_seleccionados)} repositorios públicos de {usuario_gh}.")
+
+        nombre_sugerido, encabezado_sugerido = construir_nombre_y_encabezado_personalizado(
+            repos_seleccionados, usuario_gh
+        )
+
+        col_nom1, col_nom2 = st.columns([2.2, 1.8])
+        with col_nom1:
+            nombre_archivo_final = st.text_input(
+                "Nombre del archivo .TXT a descargar (generado automáticamente según tu selección):",
+                value=nombre_sugerido,
+            )
+        with col_nom2:
+            st.markdown("**Vista previa de asignaturas detectadas:**")
+            for r_sel in repos_seleccionados[:4]:
+                m_info = obtener_meta_repo(r_sel)
+                st.caption(f"• `{r_sel}` → **{m_info['ramo']}** ({m_info['docente']})")
+
+        with st.expander("Ver vista previa del nuevo encabezado personalizado del archivo .TXT", expanded=False):
+            st.code(encabezado_sugerido, language="text")
+
+        if st.button("COMPILAR CONTEXTO PERSONALIZADO DE LOS RAMOS SELECCIONADOS", type="primary", use_container_width=True):
+            if not repos_seleccionados:
+                st.warning("Selecciona al menos un repositorio para compilar.")
+            else:
+                partes_txt = [encabezado_sugerido]
+                barra = st.progress(0, text="Iniciando extracción desde GitHub API...")
+                for idx, r_nom in enumerate(repos_seleccionados):
+                    barra.progress(
+                        (idx) / len(repos_seleccionados),
+                        text=f"Extrayendo {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
+                    )
+                    r_obj = mapa_objetos_repo[r_nom]
+                    bloque_repo = extraer_repositorio_completo(
+                        usuario_gh,
+                        r_obj,
+                        token=token_gh,
+                        incluir_literatura=incluir_lit_en_txt,
+                    )
+                    partes_txt.append(bloque_repo)
+                barra.progress(1.0, text="Compilación finalizada correctamente.")
+                st.session_state["txt_compilado_contenido"] = "\n".join(partes_txt)
+                st.session_state["txt_compilado_nombre"] = nombre_archivo_final
+
+        if "txt_compilado_contenido" in st.session_state:
+            tam_kb = len(st.session_state["txt_compilado_contenido"].encode("utf-8")) / 1024.0
+            st.success(
+                f"Archivo listo: {st.session_state['txt_compilado_nombre']} ({tam_kb:,.1f} KB compilados)."
+            )
+            st.download_button(
+                label=f"DESCARGAR {st.session_state['txt_compilado_nombre']}",
+                data=st.session_state["txt_compilado_contenido"].encode("utf-8"),
+                file_name=st.session_state["txt_compilado_nombre"],
+                mime="text/plain",
+                use_container_width=True,
+            )
+
+# ------------------------------------------------------------------------------
+# PESTAÑA 2: CUADRILLAS INFORMATIVAS Y LITERATURA OFICIAL (CON PÁGINAS Y LÁMINAS)
+# ------------------------------------------------------------------------------
+with tab2:
+    st.markdown(
+        "<div class='sec-header'>2. CUADRILLAS METODOLÓGICAS, FÓRMULAS Y UBICACIÓN EXACTA EN LA LITERATURA DE CÁTEDRA</div>",
+        unsafe_allow_html=True,
+    )
+    ramos_disponibles_lit = ["Mostrar Todos los Ramos"] + list(CUADRILLAS_LITERATURA_POR_RAMO.keys())
+    filtro_ramo_lit = st.selectbox("Filtrar cuadrillas por asignatura:", options=ramos_disponibles_lit)
+
+    if filtro_ramo_lit == "Mostrar Todos los Ramos":
+        for nombre_r in CUADRILLAS_LITERATURA_POR_RAMO:
+            renderizar_cuadrillas_ramo(nombre_r)
+    else:
+        renderizar_cuadrillas_ramo(filtro_ramo_lit)
+
+# ------------------------------------------------------------------------------
+# PESTAÑA 3: DIRECTORIO DE PLATAFORMAS STREAMLIT EN VIVO
+# ------------------------------------------------------------------------------
+with tab3:
+    st.markdown(
+        "<div class='sec-header'>3. DIRECTORIO CENTRAL DE APLICACIONES WEB EN VIVO (STREAMLIT CLOUD)</div>",
+        unsafe_allow_html=True,
+    )
+    filas_dir = []
+    for k_repo, v_meta in MAPA_REPOS_A_RAMOS.items():
+        if k_repo == "FINANZAS-AVANZADAS":
+            continue
+        filas_dir.append({
+            "Asignatura / Plataforma": v_meta["ramo"],
+            "Docente": v_meta["docente"],
+            "Repositorio GitHub": k_repo,
+            "Enlace GitHub": v_meta["repo_url"],
+            "Aplicación Web en Vivo": v_meta["app_url"],
+            "Alcance Técnico": v_meta["descripcion"],
+        })
+    df_dir = pd.DataFrame(filas_dir)
+    st.dataframe(
+        df_dir,
+        column_config={
+            "Enlace GitHub": st.column_config.LinkColumn("Repositorio GitHub"),
+            "Aplicación Web en Vivo": st.column_config.LinkColumn("Abrir App en Streamlit"),
+        },
+        hide_index=True,
+        use_container_width=True,
     )
 
-    if st.button("Generar Super Archivo de Contexto GitHub (.TXT)", type="primary"):
-        with st.spinner("Extrayendo árbol de archivos y código fuente desde GitHub..."):
-            texto_final = compilar_contexto_txt(USUARIO, seleccion, repos)
-        st.success(f"Contexto compilado correctamente ({len(texto_final):,} caracteres de {len(seleccion)} repositorios).")
+# ------------------------------------------------------------------------------
+# PESTAÑA 4: ARCHIVOS DE CÁTEDRA DESTILADOS LOCALES EN EL REPOSITORIO
+# ------------------------------------------------------------------------------
+with tab4:
+    st.markdown(
+        "<div class='sec-header'>4. ARCHIVOS DE CÁTEDRA DESTILADOS ALOJADOS EN ESTE REPOSITORIO</div>",
+        unsafe_allow_html=True,
+    )
+    carpeta_actual = os.path.dirname(os.path.abspath(__file__))
+    archivos_locales = [
+        f for f in os.listdir(carpeta_actual)
+        if os.path.isfile(os.path.join(carpeta_actual, f))
+        and f.lower().endswith((".txt", ".zip", ".md"))
+        and f not in ("requirements.txt", "packages.txt", "README.md")
+    ]
+
+    if not archivos_locales:
+        st.info("No se detectaron archivos .txt o .zip adicionales en la raíz del repositorio local.")
+    else:
+        arch_elegido = st.selectbox("Selecciona un archivo de cátedra alojado en el servidor:", options=archivos_locales)
+        ruta_completa_local = os.path.join(carpeta_actual, arch_elegido)
+        tam_mb = os.path.getsize(ruta_completa_local) / (1024 * 1024)
+        st.caption(f"Archivo seleccionado: `{arch_elegido}` ({tam_mb:.2f} MB)")
+
+        with open(ruta_completa_local, "rb") as f_loc:
+            bytes_locales = f_loc.read()
+
         st.download_button(
-            label="Descargar SUPER_CONTEXTO_GITHUB_MAURICIO_2026.txt",
-            data=texto_final,
-            file_name="SUPER_CONTEXTO_GITHUB_MAURICIO_2026.txt",
-            mime="text/plain",
+            label=f"DESCARGAR {arch_elegido}",
+            data=bytes_locales,
+            file_name=arch_elegido,
+            mime="application/octet-stream",
             use_container_width=True,
         )
-        with st.expander("Vista previa del archivo generado"):
-            st.text(texto_final[:5000] + "\n\n... [Vista previa truncada] ...")
 
-# ------------------------------------------------------------------------------
-# PESTAÑA 2: DESTILADOR DE CÁTEDRAS MOODLE (ZIP COMPLETO EN STREAMING O SUELTOS)
-# ------------------------------------------------------------------------------
-with tab_moodle:
-    st.markdown(
-        "<div class='sec-header'>DESTILAR RESPALDO_ULAGOS_2026.ZIP COMPLETO (IGNORA VIDEOS MP4 EN STREAMING) O ARCHIVOS SUELTOS</div>",
-        unsafe_allow_html=True,
-    )
-    st.info(
-        "**Bóveda Permanente:** Si subes el archivo liviano **`Todos_Los_Ramos_Destilados_TXT.zip`** a la raíz de este "
-        "repositorio en GitHub, quedará habilitado para siempre el panel de descarga en 1 clic en la parte superior."
-    )
-
-    c_m1, c_m2 = st.columns([1.3, 1.7])
-    with c_m1:
-        filtro_ramo_zip = st.selectbox(
-            "¿Qué carpeta(s) deseas procesar si subes el ZIP completo?",
-            [
-                "TODAS LAS CARPETAS DEL ZIP (Genera Todos_Los_Ramos_Destilados_TXT.zip)",
-                "Solo FINANZAS AVANZADAS 2026 (Genera 1 archivo .TXT directo)",
-                "Solo TRIBUTARIA 2026 (Genera 1 archivo .TXT directo)",
-                "Solo PROYECTOS 2026 (Genera 1 archivo .TXT directo)",
-                "Solo TERRITORIAL 2026 (Genera 1 archivo .TXT directo)",
-            ],
-        )
-    with c_m2:
-        modo_libros_moodle = st.radio(
-            "Tratamiento de libros de más de 80 páginas dentro del ramo:",
-            [
-                "Incluir Índice y primeras 20 páginas (Recomendado para no saturar memoria con 900 págs)",
-                "Incluir el 100% de todas las páginas de todos los PDFs sin límite",
-            ],
-        )
-
-    archivos_subidos = st.file_uploader(
-        "Arrastra aquí tu Respaldo_ULagos_2026.zip completo o los PDFs / Excels sueltos del ramo:",
-        type=["zip", "pdf", "xlsx", "xls", "docx", "rmd", "txt", "md", "csv"],
-        accept_multiple_files=True,
-        key="uploader_moodle_multiple",
-    )
-
-    if archivos_subidos and st.button("Destilar e Ignorar Videos Automáticamente", type="primary"):
-        es_un_zip = (len(archivos_subidos) == 1) and archivos_subidos[0].name.lower().endswith(".zip")
-
-        if es_un_zip and filtro_ramo_zip.startswith("TODAS"):
-            f_zip = archivos_subidos[0]
-            f_zip.seek(0)
-            buf_out_zip = io.BytesIO()
-            conteo_ignorados = 0
-            conteo_procesados = 0
-
-            with st.spinner("Leyendo Respaldo_ULagos_2026.zip en streaming, saltando videos MP4 y separando por ramo..."):
-                with zipfile.ZipFile(f_zip, "r") as zf_in:
-                    cursos_map = {}
-                    for info in zf_in.infolist():
-                        if info.is_dir():
-                            continue
-                        partes = info.filename.split("/")
-                        carpeta_curso = partes[0] if len(partes) > 1 else "RAIZ_ULAGOS"
-                        cursos_map.setdefault(carpeta_curso, []).append(info)
-
-                    with zipfile.ZipFile(buf_out_zip, "w", zipfile.ZIP_DEFLATED) as zf_out:
-                        for curso_nom, lista_infos in cursos_map.items():
-                            bloques_c = [
-                                "=" * 90,
-                                f"SUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS: {curso_nom}",
-                                "=" * 90,
-                                "INVENTARIO COMPLETO DE LA CARPETA (INCLUYENDO MULTIMEDIA OMITIDO):",
-                            ]
-                            for inf in lista_infos:
-                                bloques_c.append(f"  - {inf.filename} ({inf.file_size / 1024.0:,.1f} KB)")
-                            bloques_c.append("\n" + "=" * 90 + "\n")
-
-                            for inf in lista_infos:
-                                ext_i = os.path.splitext(inf.filename)[1].lower()
-                                peso_mb_i = inf.file_size / (1024.0 * 1024.0)
-                                if ext_i in EXTENSIONES_IGNORADAS_MOODLE:
-                                    conteo_ignorados += 1
-                                    bloques_c.append(
-                                        f"### VIDEO / COMPRIMIDO IGNORADO SIN DESCOMPRIMIR: {inf.filename} ({peso_mb_i:.1f} MB)\n"
-                                    )
-                                    continue
-
-                                conteo_procesados += 1
-                                b_doc = zf_in.read(inf.filename)
-                                bloques_c.append(procesar_archivo_individual(inf.filename, b_doc, modo_libros_moodle))
-
-                            nom_txt_c = f"CATEDRA_{curso_nom.replace(' ', '_').replace('[', '').replace(']', '')}.txt"
-                            zf_out.writestr(nom_txt_c, "\n".join(bloques_c))
-
-            buf_out_zip.seek(0)
-            st.success(
-                f"¡ZIP completo procesado! Se extrajeron {conteo_procesados} documentos académicos y se "
-                f"ignoraron {conteo_ignorados} videos/binarios pesados."
-            )
-            st.download_button(
-                label="Descargar Todos_Los_Ramos_Destilados_TXT.zip (Súbelo a tu GitHub para dejarlo fijo)",
-                data=buf_out_zip.getvalue(),
-                file_name="Todos_Los_Ramos_Destilados_TXT.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
-
-        else:
-            filtro_clave = ""
-            if "FINANZAS" in filtro_ramo_zip:
-                filtro_clave = "FINANZAS"
-            elif "TRIBUTARIA" in filtro_ramo_zip:
-                filtro_clave = "TRIBUTARIA"
-            elif "PROYECTOS" in filtro_ramo_zip:
-                filtro_clave = "PROYECTOS"
-            elif "TERRITORIAL" in filtro_ramo_zip:
-                filtro_clave = "TERRITORIAL"
-
-            etiqueta_ramo = filtro_clave if filtro_clave else "RAMO_ULAGOS_2026"
-            bloques_ramo = [
-                "=" * 90,
-                f"SUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS: {etiqueta_ramo}",
-                "=" * 90,
-                "",
-            ]
-            conteo_ok = 0
-            conteo_skip = 0
-
-            with st.spinner("Extrayendo documentos y fórmulas de Excel (saltando videos MP4)..."):
-                for f_up in archivos_subidos:
-                    f_up.seek(0)
-                    if f_up.name.lower().endswith(".zip"):
-                        with zipfile.ZipFile(f_up, "r") as zf_in:
-                            for info in zf_in.infolist():
-                                if info.is_dir():
-                                    continue
-                                if filtro_clave and filtro_clave.lower() not in info.filename.lower():
-                                    continue
-                                ext_i = os.path.splitext(info.filename)[1].lower()
-                                if ext_i in EXTENSIONES_IGNORADAS_MOODLE:
-                                    conteo_skip += 1
-                                    bloques_ramo.append(
-                                        f"### VIDEO / COMPRIMIDO IGNORADO: {info.filename} ({info.file_size/1024/1024:.1f} MB)\n"
-                                    )
-                                    continue
-                                conteo_ok += 1
-                                b_interno = zf_in.read(info.filename)
-                                bloques_ramo.append(
-                                    procesar_archivo_individual(info.filename, b_interno, modo_libros_moodle)
-                                )
-                    else:
-                        ext_s = os.path.splitext(f_up.name)[1].lower()
-                        if ext_s in EXTENSIONES_IGNORADAS_MOODLE:
-                            conteo_skip += 1
-                            continue
-                        conteo_ok += 1
-                        bloques_ramo.append(
-                            procesar_archivo_individual(f_up.name, f_up.read(), modo_libros_moodle)
-                        )
-
-            txt_ramo_final = "\n".join(bloques_ramo)
-            nom_salida_ramo = f"CATEDRA_{etiqueta_ramo}_2026.txt"
-            st.success(
-                f"¡Listo! Se procesaron {conteo_ok} documentos ({conteo_skip} videos/binarios ignorados) "
-                f"en `{nom_salida_ramo}` ({len(txt_ramo_final):,} caracteres)."
-            )
-            st.download_button(
-                label=f"Descargar {nom_salida_ramo} (Listo para subir al chat de IA)",
-                data=txt_ramo_final,
-                file_name=nom_salida_ramo,
-                mime="text/plain",
-                use_container_width=True,
-            )
-
-# ------------------------------------------------------------------------------
-# PESTAÑA 3: BUSCADOR COGNITIVO Y EXTRACTOR DE TOMOS EN LIBROS PESADOS
-# ------------------------------------------------------------------------------
-with tab_libros:
-    st.markdown(
-        "<div class='sec-header'>EXTRACTOR POR TEMA Y DIVISOR EN TOMOS PARA LIBROS GRANDES (ROSS, GITMAN, FONTAINE, CEPAL)</div>",
-        unsafe_allow_html=True,
-    )
-    libros_subidos = st.file_uploader(
-        "Sube aquí el libro o los libros PDF:",
-        type=["pdf"],
-        accept_multiple_files=True,
-        key="uploader_libros_pesados",
-    )
-
-    modo_accion_libro = st.radio(
-        "¿Qué deseas hacer con los libros cargados?",
-        [
-            "Buscar un concepto o fórmula y extraer todas las páginas donde se explica",
-            "Convertir el libro completo en Tomos .TXT (empaquetados en un .ZIP)",
-        ],
-        horizontal=True,
-    )
-
-    if "Buscar un concepto" in modo_accion_libro:
-        palabras_input = st.text_input(
-            "Escribe las palabras clave separadas por coma (ej: Markowitz, frontera eficiente  |  WACC, CAPM  |  Rondinelli):",
-            value="Markowitz, frontera",
-        )
-        if libros_subidos and st.button("Buscar en Libros y Generar Extracto Teórico (.TXT)", type="primary"):
-            kws = [k.strip().lower() for k in palabras_input.split(",") if k.strip()]
-            lineas_busq = [
-                "=" * 90,
-                f"EXTRACTO TEÓRICO DE BIBLIOTECA ULAGOS — CONCEPTOS: {', '.join(kws)}",
-                "=" * 90,
-                "",
-            ]
-            total_pags_halladas = 0
-            with st.spinner("Escaneando todas las páginas de los libros cargados..."):
-                for lib in libros_subidos:
-                    lib.seek(0)
-                    pags = leer_paginas_pdf_bytes(lib.read(), lib.name)
-                    hallazgos = []
-                    for num_p, txt_p in pags:
-                        txt_l = txt_p.lower()
-                        if any(k in txt_l for k in kws):
-                            score = sum(1 for k in kws if k in txt_l)
-                            hallazgos.append((score, num_p, txt_p))
-
-                    hallazgos.sort(key=lambda x: (-x[0], x[1]))
-                    if hallazgos:
-                        total_pags_halladas += len(hallazgos)
-                        lineas_busq.append(
-                            f"## LIBRO: {lib.name} ({len(hallazgos)} páginas relevantes encontradas de {len(pags)} totales)"
-                        )
-                        lineas_busq.append("-" * 75)
-                        for sc, num_p, txt_p in hallazgos[:40]:
-                            lineas_busq.append(f"### [{lib.name} — Página {num_p} | Coincidencias: {sc}/{len(kws)}]\n{txt_p}\n")
-                        lineas_busq.append("=" * 90 + "\n")
-
-            txt_busq_final = "\n".join(lineas_busq)
-            st.success(f"Se encontraron {total_pags_halladas} páginas relevantes en los libros analizados.")
-            st.download_button(
-                label="Descargar EXTRACTO_TEORICO_LIBROS.txt",
-                data=txt_busq_final,
-                file_name="EXTRACTO_TEORICO_LIBROS.txt",
-                mime="text/plain",
-                use_container_width=True,
-            )
-    else:
-        if libros_subidos and st.button("Convertir Libros Completos en Tomos .TXT (.ZIP)", type="primary"):
-            buf_zip = io.BytesIO()
-            with st.spinner("Convirtiendo libros completos en tomos de texto..."):
-                with zipfile.ZipFile(buf_zip, "w", zipfile.ZIP_DEFLATED) as zf_out:
-                    for lib in libros_subidos:
-                        lib.seek(0)
-                        pags = leer_paginas_pdf_bytes(lib.read(), lib.name)
-                        base_nom = os.path.splitext(lib.name)[0].replace(" ", "_")
-                        tomo = 1
-                        acum = [f"LIBRO COMPLETO: {lib.name} — TOMO {tomo}\n" + "=" * 80 + "\n"]
-                        chars = 0
-                        for num_p, txt_p in pags:
-                            blq = f"\n--- [{lib.name} | Página {num_p}] ---\n{txt_p}\n"
-                            if chars + len(blq) > 400_000 and chars > 0:
-                                zf_out.writestr(f"{base_nom}_Tomo{tomo}.txt", "".join(acum))
-                                tomo += 1
-                                acum = [f"LIBRO COMPLETO: {lib.name} — TOMO {tomo}\n" + "=" * 80 + "\n"]
-                                chars = 0
-                            acum.append(blq)
-                            chars += len(blq)
-                        if chars > 0:
-                            zf_out.writestr(f"{base_nom}_Tomo{tomo}.txt", "".join(acum))
-
-            buf_zip.seek(0)
-            st.success("¡Libros convertidos al 100% en tomos .TXT!")
-            st.download_button(
-                label="Descargar Biblioteca_Libros_Tomos_TXT.zip",
-                data=buf_zip.getvalue(),
-                file_name="Biblioteca_Libros_Tomos_TXT.zip",
-                mime="application/zip",
-                use_container_width=True,
-            )
+        if arch_elegido.lower().endswith(".txt"):
+            texto_local = bytes_locales.decode("utf-8", errors="replace")
+            busqueda = st.text_input("Buscar término, autor o concepto dentro del archivo de cátedra:")
+            if busqueda.strip():
+                coincidencias = [
+                    linea for linea in texto_local.splitlines()
+                    if busqueda.lower() in linea.lower()
+                ]
+                st.write(f"Se encontraron {len(coincidencias)} líneas con '{busqueda}':")
+                st.code("\n".join(coincidencias[:80]), language="text")
+            else:
+                with st.expander("Ver primeras líneas del archivo de cátedra", expanded=False):
+                    st.code("\n".join(texto_local.splitlines()[:100]), language="text")
