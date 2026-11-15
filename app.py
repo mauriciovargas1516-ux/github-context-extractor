@@ -1,23 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-app.py — SUPER HUB ACADÉMICO Y SUPER CENTRAL DE MANDO ULAGOS 2026
+app.py — SUPER HUB ACADÉMICO Y CENTRAL DE MANDO MULTI-REPOSITORIO ULAGOS 2026
 Repositorio Maestro: https://github.com/mauriciovargas1516-ux/github-context-extractor
-- Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com).
-- Extracción quirúrgica HTTP Byte-Range dentro de archivos .ZIP gigantes en Google Drive
-  (extrae cualquier PDF o Excel dentro de Respaldo_ULagos_2026.zip en < 1 segundo).
-- VISOR GRÁFICO HTML5 CANVAS (Mozilla PDF.js + Blob URL) anti-bloqueo de Google Chrome.
-- MODO DOBLE (HUB CENTRAL + PUENTE REMOTO EN VIVO):
-  1) Cuando se abre directamente (__name__ != 'puente_remoto_ulagos'), muestra las 5 pestañas
-     del Super Hub incluyendo la Pestaña 5: SUPER CENTRAL DE MANDO para auditar, inyectar o
-     desacoplar el puente en todos los demás repositorios sin destruir su código original.
-  2) Cuando es invocado por una app hija (__name__ == 'puente_remoto_ulagos'), expone la función
-     ejecutar_nodo_receptor_puente(nombre_repo) que renderiza las Cuadrillas Metodológicas y el
-     Visor Quirúrgico de Google Drive directamente dentro de la app de la asignatura.
+- Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com)
+  exclusivamente vía Streamlit Secrets (sin credenciales expuestas en el código).
+- Extracción quirúrgica HTTP Byte-Range dentro de archivos .ZIP gigantes en Google Drive.
+- Visor gráfico HTML5 Canvas (Mozilla PDF.js + Blob URL) anti-bloqueo de Chrome.
+- Modo Admin protegido con ADMIN_PASSWORD + GITHUB_TOKEN en servidor (nunca enviado al navegador).
+- Pestaña 5 conectada al módulo central_mando_github.py (About, requirements.txt, README.md,
+  archivos en lote y Puente en Vivo no destructivo).
 """
 
 import io
 import os
 import re
+import hmac
 import json
 import zlib
 import struct
@@ -40,7 +37,7 @@ ES_MODO_PUENTE_REMOTO = (__name__ == "puente_remoto_ulagos")
 
 
 # ==============================================================================
-# 1. CONFIGURACIÓN DE PÁGINA (SOLO SE EJECUTA SI NO ESTÁ EN MODO PUENTE REMOTO)
+# 1. CONFIGURACIÓN DE PÁGINA (SOLO SI NO ESTÁ EN MODO PUENTE REMOTO)
 # ==============================================================================
 
 if not ES_MODO_PUENTE_REMOTO:
@@ -168,7 +165,8 @@ if not ES_MODO_PUENTE_REMOTO:
             margin-bottom: 16px;
         }
         div[data-baseweb="input"] > div,
-        div[data-baseweb="select"] > div {
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="textarea"] > div {
             background-color: #FFFFFF !important;
             color: #0F172A !important;
             border: 1px solid #94A3B8 !important;
@@ -180,27 +178,26 @@ if not ES_MODO_PUENTE_REMOTO:
 
 
 # ==============================================================================
-# 2. CREDENCIALES GOOGLE CLOUD Y MOTOR QUIRÚRGICO HTTP RANGE PARA .ZIP EN DRIVE
+# 2. CREDENCIALES GOOGLE CLOUD (SOLO SECRETS) Y MOTOR HTTP RANGE PARA .ZIP
 # ==============================================================================
 
 SERVICE_ACCOUNT_EMAIL = "drive-ulagos@motor-sii-python.iam.gserviceaccount.com"
 
-_SA_ZLIB_REV = (
-    "=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"
-)
-
 
 def obtener_dict_credenciales_gcp():
+    """Lee las credenciales de Google Cloud exclusivamente desde Streamlit Secrets."""
     try:
         if "gcp_service_account_json" in st.secrets:
             raw_sec = st.secrets["gcp_service_account_json"]
             if isinstance(raw_sec, str):
                 return json.loads(raw_sec)
             return dict(raw_sec)
-    except Exception:
-        pass
-    raw_bytes = zlib.decompress(base64.b64decode(_SA_ZLIB_REV[::-1].encode("ascii")))
-    return json.loads(raw_bytes.decode("utf-8"))
+    except Exception as exc:
+        raise RuntimeError(f"Error al leer 'gcp_service_account_json' en Secrets: {exc}") from exc
+
+    raise RuntimeError(
+        "Falta configurar 'gcp_service_account_json' en Streamlit Cloud -> Settings -> Secrets."
+    )
 
 
 def obtener_token_bearer_drive():
@@ -507,6 +504,7 @@ MAPA_REPOS_A_RAMOS = {
         "app_url": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/PROYECTOS-2026",
         "descripcion": "Formulación, evaluación financiera privada, evaluación social SNI/MIDESO 2026 y valoración ambiental RA1/RA2.",
+        "topics": ["python", "streamlit", "evaluacion-de-proyectos", "sni-chile", "ulagos", "ingenieria-comercial"],
     },
     "DESARROLLO-Y-GESTION-TERRITORIAL-2026": {
         "ramo": "Desarrollo y Gestión Territorial",
@@ -516,6 +514,7 @@ MAPA_REPOS_A_RAMOS = {
         "app_url": "https://desarrollo-y-gestion-territorial-2026.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026",
         "descripcion": "Indicadores de especialización regional (Qij, CE, Silva Lira), Gini/Theil, Ordenamiento Territorial (Guttman/Rondinelli) y Redes UCINET/Dini.",
+        "topics": ["python", "streamlit", "desarrollo-territorial", "sii-chile", "ucinet", "ulagos"],
     },
     "FINANZAS-AVANZADAS-2026": {
         "ramo": "Finanzas Avanzadas",
@@ -525,6 +524,7 @@ MAPA_REPOS_A_RAMOS = {
         "app_url": "https://finanzas-avanzadas-2026.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026",
         "descripcion": "Modelo Consumo-Inversión de Fisher, DuPont/PGU, Frontera Eficiente de Markowitz (5 vs. 30 títulos IPSA), CAPM y Beta de Hamada.",
+        "topics": ["python", "streamlit", "finanzas-corporativas", "markowitz", "capm", "ulagos"],
     },
     "FINANZAS-AVANZADAS": {
         "ramo": "Finanzas Avanzadas",
@@ -534,6 +534,7 @@ MAPA_REPOS_A_RAMOS = {
         "app_url": "https://finanzas-avanzadas-2026.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS",
         "descripcion": "Simulación financiera, teoría de carteras de Markowitz, CAPM, WACC y valoración bajo incertidumbre.",
+        "topics": ["python", "streamlit", "finanzas", "montecarlo", "markowitz", "ulagos"],
     },
     "GESTION-TRIBUTARIA-2026": {
         "ramo": "Gestión Tributaria para la Toma de Decisiones",
@@ -543,6 +544,7 @@ MAPA_REPOS_A_RAMOS = {
         "app_url": "https://gestion-tributaria-2026.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/GESTION-TRIBUTARIA-2026",
         "descripcion": "Determinación de IVA (D.L. 825), Libros de Compras/Ventas/Honorarios/Remuneraciones, F29 e Infracciones Art. 97 Código Tributario.",
+        "topics": ["python", "streamlit", "tributaria-chile", "iva-f29", "sii", "ulagos"],
     },
     "moodle-hybrid-scraper": {
         "ramo": "Sincronizador Automatizado ULagos Virtual (Moodle Scraper)",
@@ -552,6 +554,7 @@ MAPA_REPOS_A_RAMOS = {
         "app_url": "https://app-context-extractor-d8x5kwfdodzvmx7m3vean.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/moodle-hybrid-scraper",
         "descripcion": "Rastreador web híbrido integrado para extraer y empaquetar todos los PDFs, Excels y apuntes de ULagos Virtual.",
+        "topics": ["python", "selenium", "moodle-scraper", "streamlit", "ulagos"],
     },
     "github-context-extractor": {
         "ramo": "Hub Central & Extractor de Contexto Académico",
@@ -560,7 +563,8 @@ MAPA_REPOS_A_RAMOS = {
         "docente": "Portafolio Ingeniería Comercial ULagos",
         "app_url": "https://app-context-extractor-d8x5kwfdodzvmx7m3vean.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/github-context-extractor",
-        "descripcion": "Motor centralizado de compilación vía descarga directa ZIP, scraper Moodle y biblioteca metodológica conectada a Google Drive.",
+        "descripcion": "Super Hub centralizado de compilación vía GitHub API, conexión Google Drive API (5 TB) y gestión remota multi-repositorio.",
+        "topics": ["python", "streamlit", "google-drive-api", "github-api", "context-engineering", "ulagos"],
     },
 }
 
@@ -986,7 +990,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
 
 
 # ==============================================================================
-# 5. BUSCADOR QUIRÚRGICO DE PDFS EN GOOGLE DRIVE (SUELTOS O DENTRO DEL .ZIP 444 MB)
+# 5. BUSCADOR QUIRÚRGICO DE PDFS EN GOOGLE DRIVE (SUELTOS O DENTRO DEL .ZIP)
 # ==============================================================================
 
 def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
@@ -1103,7 +1107,7 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1, prefijo_key="h
             return
 
     st.warning(
-        f"No se encontró `{nombre_pdf}` dentro de los archivos compartidos con `{SERVICE_ACCOUNT_EMAIL}`."
+        f"No se encontró `{nombre_pdf}` o falta configurar `gcp_service_account_json` en Streamlit Secrets."
     )
 
 
@@ -1112,13 +1116,6 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1, prefijo_key="h
 # ==============================================================================
 
 def ejecutar_nodo_receptor_puente(nombre_repo_hijo="PROYECTOS-2026"):
-    """
-    Esta función se ejecuta automáticamente dentro de PROYECTOS-2026, TERRITORIAL-2026,
-    FINANZAS-AVANZADAS-2026 o GESTION-TRIBUTARIA-2026 cuando llaman al Puente en Vivo.
-    No altera el layout ni el código existente de la app hija: agrega abajo un módulo
-    institucional con las Cuadrillas Metodológicas de esa asignatura y el Visor Quirúrgico
-    de Google Drive (PDF.js en página exacta).
-    """
     meta_hijo = MAPA_REPOS_A_RAMOS.get(nombre_repo_hijo, MAPA_REPOS_A_RAMOS["PROYECTOS-2026"])
     ramo_defecto = meta_hijo["ramo"]
     if ramo_defecto not in CUADRILLAS_LITERATURA_POR_RAMO:
@@ -1195,139 +1192,7 @@ def ejecutar_nodo_receptor_puente(nombre_repo_hijo="PROYECTOS-2026"):
 
 
 # ==============================================================================
-# 7. MOTOR DE LA SUPER CENTRAL DE MANDO (INYECCIÓN NO DESTRUCTIVA VÍA GITHUB API)
-# ==============================================================================
-
-MARCADOR_PUENTE_INI = "# === [INICIO PUENTE CENTRAL ULAGOS 2026] ==="
-MARCADOR_PUENTE_FIN = "# === [FIN PUENTE CENTRAL ULAGOS 2026] ==="
-
-
-def generar_snippet_conector_hijo(nombre_repo):
-    return (
-        f"\n\n{MARCADOR_PUENTE_INI}\n"
-        "try:\n"
-        "    import urllib.request as _ureq\n"
-        '    _url_puente = "https://raw.githubusercontent.com/mauriciovargas1516-ux/github-context-extractor/main/app.py"\n'
-        '    _req_p = _ureq.Request(_url_puente, headers={"User-Agent": "ULagos-Bridge/1.0"})\n'
-        "    with _ureq.urlopen(_req_p, timeout=12) as _resp_p:\n"
-        '        _cod_hub = _resp_p.read().decode("utf-8")\n'
-        '    _ns_hub = {"__name__": "puente_remoto_ulagos"}\n'
-        "    exec(_cod_hub, _ns_hub)\n"
-        '    if "ejecutar_nodo_receptor_puente" in _ns_hub:\n'
-        f'        _ns_hub["ejecutar_nodo_receptor_puente"]("{nombre_repo}")\n'
-        "except Exception as _e_puente:\n"
-        "    pass\n"
-        f"{MARCADOR_PUENTE_FIN}\n"
-    )
-
-
-def _leer_archivo_github_api(usuario, repo, ruta, token=""):
-    """Lee el contenido y el SHA de un archivo en un repositorio de GitHub."""
-    url = f"https://api.github.com/repos/{usuario}/{repo}/contents/{ruta}"
-    headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "ULagos-Command-Center"}
-    if token.strip():
-        headers["Authorization"] = f"token {token.strip()}"
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
-    contenido = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
-    return contenido, data.get("sha", "")
-
-
-def _escribir_archivo_github_api(usuario, repo, ruta, nuevo_texto, sha_actual, token, mensaje_commit):
-    """Actualiza un archivo en GitHub preservando su historial de commits."""
-    url = f"https://api.github.com/repos/{usuario}/{repo}/contents/{ruta}"
-    headers = {
-        "Accept": "application/vnd.github.v3+json",
-        "User-Agent": "ULagos-Command-Center",
-        "Authorization": f"token {token.strip()}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "message": mensaje_commit,
-        "content": base64.b64encode(nuevo_texto.encode("utf-8")).decode("utf-8"),
-        "sha": sha_actual,
-    }
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="PUT")
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
-def inyectar_puente_no_destructivo_en_repo(usuario, repo_destino, token):
-    """
-    1) Verifica y agrega pypdf, google-auth y requests al requirements.txt del repo destino.
-    2) Toma el app.py original del repo destino sin borrar ni una sola línea de su código
-       y adjunta al final las 14 líneas del conector al Puente Central.
-    """
-    # Paso 1: Asegurar dependencias en requirements.txt
-    try:
-        req_txt, req_sha = _leer_archivo_github_api(usuario, repo_destino, "requirements.txt", token=token)
-        lineas_req = [l.strip() for l in req_txt.splitlines() if l.strip()]
-        existentes_low = {re.split(r"[=<>~]", l)[0].strip().lower() for l in lineas_req}
-        agregados = []
-        for pkg in ["requests", "pypdf", "google-auth", "openpyxl"]:
-            if pkg not in existentes_low:
-                lineas_req.append(pkg)
-                agregados.append(pkg)
-        if agregados:
-            nuevo_req_txt = "\n".join(lineas_req) + "\n"
-            _escribir_archivo_github_api(
-                usuario,
-                repo_destino,
-                "requirements.txt",
-                nuevo_req_txt,
-                req_sha,
-                token,
-                f"Central de Mando ULagos: agregar {', '.join(agregados)} para Visor Google Drive",
-            )
-    except Exception:
-        pass
-
-    # Paso 2: Adjuntar bloque al final de app.py sin destruir el código existente
-    app_txt, app_sha = _leer_archivo_github_api(usuario, repo_destino, "app.py", token=token)
-    snippet = generar_snippet_conector_hijo(repo_destino)
-
-    if MARCADOR_PUENTE_INI in app_txt and MARCADOR_PUENTE_FIN in app_txt:
-        ini = app_txt.find(MARCADOR_PUENTE_INI)
-        fin = app_txt.find(MARCADOR_PUENTE_FIN) + len(MARCADOR_PUENTE_FIN)
-        nuevo_app_txt = app_txt[:ini].rstrip() + snippet
-    else:
-        nuevo_app_txt = app_txt.rstrip() + snippet
-
-    _escribir_archivo_github_api(
-        usuario,
-        repo_destino,
-        "app.py",
-        nuevo_app_txt,
-        app_sha,
-        token,
-        f"Central de Mando ULagos: conectar Puente en Vivo en {repo_destino}",
-    )
-    return True
-
-
-def desacoplar_puente_de_repo(usuario, repo_destino, token):
-    """Elimina limpiamente las 14 líneas del puente dejando el app.py exactamente como estaba."""
-    app_txt, app_sha = _leer_archivo_github_api(usuario, repo_destino, "app.py", token=token)
-    if MARCADOR_PUENTE_INI not in app_txt:
-        return False
-    ini = app_txt.find(MARCADOR_PUENTE_INI)
-    fin = app_txt.find(MARCADOR_PUENTE_FIN) + len(MARCADOR_PUENTE_FIN)
-    limpio = (app_txt[:ini].rstrip() + "\n" + app_txt[fin:].lstrip()).rstrip() + "\n"
-    _escribir_archivo_github_api(
-        usuario,
-        repo_destino,
-        "app.py",
-        limpio,
-        app_sha,
-        token,
-        f"Central de Mando ULagos: desacoplar puente en {repo_destino}",
-    )
-    return True
-
-
-# ==============================================================================
-# 8. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
+# 7. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
 # ==============================================================================
 
 EXTENSIONES_TEXTO_PERMITIDAS = (
@@ -1396,6 +1261,7 @@ def obtener_meta_repo(nombre_repo, desc_api="", homepage_api=""):
         "app_url": homepage_api or "No especificada",
         "repo_url": f"https://github.com/{GITHUB_USER_DEFAULT}/{nombre_repo}",
         "descripcion": desc_api or "Repositorio de código y automatización en Python.",
+        "topics": ["python", "streamlit", "ulagos"],
     }
 
 
@@ -1467,7 +1333,7 @@ def _github_api_get(url, token=""):
     req.add_header("Accept", "application/vnd.github.v3+json")
     req.add_header("User-Agent", "ULagos-Academic-Context-Extractor")
     if token.strip():
-        req.add_header("Authorization", f"token {token.strip()}")
+        req.add_header("Authorization", f"Bearer {token.strip()}")
     with urllib.request.urlopen(req, timeout=20) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
@@ -1536,7 +1402,7 @@ def _descargar_zip_repositorio_en_memoria(usuario, nombre_repo, rama_preferida="
         url_zip = f"https://codeload.github.com/{usuario}/{nombre_repo}/zip/refs/heads/{rama}"
         req = urllib.request.Request(url_zip, headers={"User-Agent": "Mozilla/5.0"})
         if token.strip():
-            req.add_header("Authorization", f"token {token.strip()}")
+            req.add_header("Authorization", f"Bearer {token.strip()}")
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 return resp.read()
@@ -1600,7 +1466,7 @@ def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatur
 
 
 # ==============================================================================
-# 9. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
+# 8. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
 # ==============================================================================
 
 def renderizar_cuadrillas_ramo(nombre_ramo):
@@ -1646,15 +1512,15 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
 
 
 # ==============================================================================
-# 10. INTERFAZ PRINCIPAL DEL HUB (SOLO SE EJECUTA SI NO ES INVOCADO COMO PUENTE)
+# 9. INTERFAZ PRINCIPAL DEL HUB (SOLO SI NO ES INVOCADO COMO PUENTE REMOTO)
 # ==============================================================================
 
 if not ES_MODO_PUENTE_REMOTO:
     st.markdown(
         """
         <div class="top-banner">
-            <h1>SUPER HUB ACADÉMICO Y CENTRAL DE MANDO ULAGOS 2026: GITHUB + GOOGLE DRIVE API (5 TB)</h1>
-            <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) con extracción quirúrgica HTTP Byte-Range, Visor PDF.js y Puente Maestro hacia todos tus repositorios.</p>
+            <h1>SUPER HUB ACADÉMICO Y CENTRAL DE MANDO ULAGOS 2026: GITHUB CMS + GOOGLE DRIVE API (5 TB)</h1>
+            <p>Conectado a Google Cloud (motor-sii-python) y GitHub API para controlar remotamente About, README.md, requirements.txt y app.py desde un solo panel seguro.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1704,37 +1570,59 @@ if not ES_MODO_PUENTE_REMOTO:
             st.divider()
 
     with st.sidebar:
-        st.markdown("### Estado de Conexión Cloud")
-        st.caption("**Proyecto GCP:** `motor-sii-python`")
-        st.code(SERVICE_ACCOUNT_EMAIL, language="text")
-        if st.button("Refrescar Conexión Google Drive (5 TB)", use_container_width=True):
-            st.cache_data.clear()
-            st.rerun()
-
-        st.divider()
+        st.markdown("### Acceso Central de Mando")
         usuario_gh = st.text_input("Usuario GitHub:", value=GITHUB_USER_DEFAULT)
-        token_default = ""
-        try:
-            token_default = st.secrets.get("GITHUB_TOKEN", "")
-        except Exception:
-            token_default = ""
-        token_gh = st.text_input(
-            "Token GitHub (Para inyectar Puente en 1 clic):",
-            value=token_default,
+
+        clave_admin = st.text_input(
+            "Clave Admin (desbloquea Pestaña 5):",
+            value="",
             type="password",
+            help="Valida tu identidad en servidor. El token de GitHub nunca se envía al navegador.",
         )
+
+        token_gh = ""
+        try:
+            clave_real = str(st.secrets.get("ADMIN_PASSWORD", ""))
+            token_secreto = str(st.secrets.get("GITHUB_TOKEN", ""))
+        except Exception:
+            clave_real = ""
+            token_secreto = ""
+
+        if clave_real and clave_admin and hmac.compare_digest(clave_admin, clave_real):
+            token_gh = token_secreto
+            if token_gh.strip():
+                st.success("Modo Admin activo (token protegido en servidor).")
+            else:
+                st.warning("Clave correcta, pero falta definir GITHUB_TOKEN en Secrets.")
+        elif clave_admin:
+            st.error("Clave Admin incorrecta.")
+        else:
+            st.caption("Modo público (solo lectura).")
+
         incluir_lit_en_txt = st.checkbox(
             "Incluir Cuadrilla de Literatura e Hipervínculos en el .TXT",
             value=True,
         )
+
+        st.divider()
+        st.markdown("### Estado Google Cloud (5 TB)")
+        st.caption("**Proyecto GCP:** `motor-sii-python`")
+        st.code(SERVICE_ACCOUNT_EMAIL, language="text")
+        if st.button("Refrescar Caches Drive / GitHub", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "1. Extractor GitHub por Ramo",
         "2. Cuadrillas y Visor PDF (Drive API)",
         "3. Explorador Quirúrgico Google Drive (.ZIP)",
         "4. Bóveda Destilada en 1 Clic",
-        "5. Super Central de Mando (Puente a Repos)",
+        "5. Super Central de Mando (Editor Remoto de Repos)",
     ])
+
+    lista_repos, usando_fallback = listar_repositorios_usuario(usuario_gh, token=token_gh)
+    mapa_objetos_repo = {r["name"]: r for r in lista_repos} if lista_repos else {}
+    nombres_disponibles = list(mapa_objetos_repo.keys()) if mapa_objetos_repo else list(MAPA_REPOS_A_RAMOS.keys())
 
     # --------------------------------------------------------------------------
     # PESTAÑA 1: EXTRACTOR GITHUB POR RAMO (INMUNE A HTTP 403)
@@ -1744,17 +1632,10 @@ if not ES_MODO_PUENTE_REMOTO:
             "<div class='sec-header'>1. SELECCIÓN DE RAMOS / REPOSITORIOS Y NOMENCLATURA PERSONALIZADA</div>",
             unsafe_allow_html=True,
         )
-
-        lista_repos, usando_fallback = listar_repositorios_usuario(usuario_gh, token=token_gh)
         if usando_fallback:
-            st.caption(
-                "Modo Directo Codeload Activo: Catálogo cargado vía web directa (evitando el límite de 60 consultas/hora de api.github.com)."
-            )
+            st.caption("Modo Directo Codeload Activo: Catálogo cargado vía web directa.")
 
-        if lista_repos:
-            mapa_objetos_repo = {r["name"]: r for r in lista_repos}
-            nombres_disponibles = list(mapa_objetos_repo.keys())
-
+        if nombres_disponibles:
             c_filtro, c_sel = st.columns([1.3, 2.7])
             with c_filtro:
                 modo_seleccion = st.radio(
@@ -1813,10 +1694,10 @@ if not ES_MODO_PUENTE_REMOTO:
                     barra = st.progress(0, text="Iniciando descarga directa en memoria desde Codeload GitHub...")
                     for idx, r_nom in enumerate(repos_seleccionados):
                         barra.progress(
-                            (idx) / len(repos_seleccionados),
+                            idx / len(repos_seleccionados),
                             text=f"Empaquetando {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
                         )
-                        r_obj = mapa_objetos_repo[r_nom]
+                        r_obj = mapa_objetos_repo.get(r_nom, {"name": r_nom, "default_branch": "main"})
                         bloque_repo = extraer_repositorio_completo(
                             usuario_gh,
                             r_obj,
@@ -2058,91 +1939,25 @@ if not ES_MODO_PUENTE_REMOTO:
                             break
                 st.write(f"Mostrando las primeras {len(bloques_encontrados)} coincidencias con contexto de página:")
                 st.code("\n\n" + ("\n" + "=" * 60 + "\n").join(bloques_encontrados), language="text")
+        else:
+            st.info("No se encontró ningún archivo `.txt` destilado en la raíz del repositorio.")
 
     # --------------------------------------------------------------------------
-    # PESTAÑA 5: SUPER CENTRAL DE MANDO (PUENTE EN VIVO HACIA TODOS TUS REPOS)
+    # PESTAÑA 5: SUPER CENTRAL DE MANDO (MÓDULO EXTERNO central_mando_github.py)
     # --------------------------------------------------------------------------
     with tab5:
-        st.markdown(
-            "<div class='sec-header'>5. SUPER CENTRAL DE MANDO — PUENTE EN VIVO HACIA TODOS TUS REPOSITORIOS</div>",
-            unsafe_allow_html=True,
-        )
-        st.write(
-            "Desde esta consola puedes conectar todas tus aplicaciones de asignaturas (`PROYECTOS-2026`, "
-            "`DESARROLLO-Y-GESTION-TERRITORIAL-2026`, `FINANZAS-AVANZADAS-2026`, `GESTION-TRIBUTARIA-2026`) "
-            "a este Super Hub **sin sobrescribir ni borrar ni una sola línea de su código original**. "
-            "El inyector añade únicamente un conector de 14 líneas al final del `app.py` de cada ramo y "
-            "asegura que su `requirements.txt` incluya `pypdf` y `google-auth`."
-        )
+        try:
+            from central_mando_github import renderizar_central_de_mando
 
-        repos_objetivo_puente = [
-            "PROYECTOS-2026",
-            "DESARROLLO-Y-GESTION-TERRITORIAL-2026",
-            "FINANZAS-AVANZADAS-2026",
-            "FINANZAS-AVANZADAS",
-            "GESTION-TRIBUTARIA-2026",
-        ]
-
-        c_cmd1, c_cmd2 = st.columns([1.8, 2.2])
-        with c_cmd1:
-            repos_a_conectar = st.multiselect(
-                "Selecciona los repositorios donde deseas inyectar o actualizar el Puente en Vivo:",
-                options=repos_objetivo_puente,
-                default=["PROYECTOS-2026", "DESARROLLO-Y-GESTION-TERRITORIAL-2026"],
+            renderizar_central_de_mando(
+                usuario_gh=usuario_gh,
+                token_gh=token_gh,
+                mapa_repos=MAPA_REPOS_A_RAMOS,
+                cuadrillas_lit=CUADRILLAS_LITERATURA_POR_RAMO,
+                fn_preview_puente=ejecutar_nodo_receptor_puente,
             )
-            btn_inyectar = st.button(
-                "INYECTAR PUENTE EN VIVO (MODO NO DESTRUCTIVO)",
-                type="primary",
-                use_container_width=True,
+        except ImportError:
+            st.error(
+                "Falta subir el archivo `central_mando_github.py` en la raíz del repositorio `github-context-extractor` "
+                "para activar la Pestaña 5."
             )
-            btn_desacoplar = st.button(
-                "Desacoplar Puente y Restaurar app.py Original",
-                use_container_width=True,
-            )
-
-        with c_cmd2:
-            repo_preview_snip = st.selectbox(
-                "O copia manualmente las 14 líneas para pegarlas al final de cualquier app.py:",
-                options=repos_objetivo_puente,
-            )
-            st.code(generar_snippet_conector_hijo(repo_preview_snip).strip(), language="python")
-
-        if btn_inyectar:
-            if not token_gh.strip():
-                st.error(
-                    "Para inyectar automáticamente en otros repositorios desde la nube, pega tu Token de GitHub "
-                    "(Personal Access Token con permiso 'repo') en la barra lateral izquierda, o copia las 14 líneas de arriba al final de tu app.py."
-                )
-            else:
-                for r_dest in repos_a_conectar:
-                    try:
-                        with st.spinner(f"Conectando puente no destructivo en {r_dest}..."):
-                            inyectar_puente_no_destructivo_en_repo(usuario_gh, r_dest, token_gh)
-                        st.success(
-                            f"Puente conectado exitosamente al final de `{r_dest}/app.py` y `requirements.txt` verificado."
-                        )
-                    except Exception as exc_inj:
-                        st.error(f"No se pudo inyectar en `{r_dest}`: {exc_inj}")
-
-        if btn_desacoplar:
-            if not token_gh.strip():
-                st.error("Ingresa tu Token de GitHub en la barra lateral para desacoplar automáticamente.")
-            else:
-                for r_dest in repos_a_conectar:
-                    try:
-                        fue_removido = desacoplar_puente_de_repo(usuario_gh, r_dest, token_gh)
-                        if fue_removido:
-                            st.success(f"Puente removido limpiamente de `{r_dest}/app.py`.")
-                        else:
-                            st.info(f"`{r_dest}/app.py` no tenía el bloque del puente activo.")
-                    except Exception as exc_rem:
-                        st.error(f"Error al desacoplar `{r_dest}`: {exc_rem}")
-
-        st.divider()
-        st.markdown("#### Simulador en Vivo: Así se ve el Nodo Receptor al final de cualquiera de tus otras Apps")
-        repo_sim = st.selectbox(
-            "Previsualizar cómo se renderiza el puente dentro de la aplicación destino:",
-            options=repos_objetivo_puente,
-            key="sim_nodo_hijo",
-        )
-        ejecutar_nodo_receptor_puente(repo_sim)
