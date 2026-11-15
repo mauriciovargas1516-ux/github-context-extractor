@@ -2,8 +2,11 @@
 """
 app.py — SUPER HUB ACADÉMICO Y CENTRAL DE MANDO MULTI-REPOSITORIO ULAGOS 2026
 Repositorio Maestro: https://github.com/mauriciovargas1516-ux/github-context-extractor
-- Orquestador principal del Super Hub (Pestañas 1 a 4) conectado modularmente
-  con central_mando_github.py (Pestaña 5).
+- Pestaña 1 conectada modularmente a extractor_github_avanzado.py (Super Extractor Total,
+  Código Limpio, Mapa AST, Auditoría CMS y descarga en 1 .TXT / .ZIP / Tomos).
+- Pestañas 2 a 4: Cuadrillas Metodológicas, Visor PDF.js vía Google Drive API (HTTP Byte-Range)
+  y Bóveda Moodle local.
+- Pestaña 5 conectada modularmente a central_mando_github.py (CMS remoto de GitHub).
 - Credenciales de Google Cloud (gcp_service_account_json) y GitHub (GITHUB_TOKEN +
   ADMIN_PASSWORD) gestionadas exclusivamente en Streamlit Secrets.
 """
@@ -19,9 +22,6 @@ import base64
 import zipfile
 import unicodedata
 import urllib3
-import urllib.request
-import urllib.error
-from datetime import datetime
 
 import requests
 import streamlit as st
@@ -1190,41 +1190,62 @@ def ejecutar_nodo_receptor_puente(nombre_repo_hijo="PROYECTOS-2026"):
 
 
 # ==============================================================================
-# 7. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
+# 7. BÓVEDA LOCAL (.TXT O .ZIP) Y UTILIDADES DE LITERATURA
 # ==============================================================================
-
-EXTENSIONES_TEXTO_PERMITIDAS = (
-    ".py", ".md", ".txt", ".toml", ".json", ".yaml", ".yml",
-    ".css", ".html", ".js", ".rmd", ".r", ".sql", ".sh", ".csv"
-)
-
 
 @st.cache_data(show_spinner=False)
 def cargar_boveda_moodle_del_repo():
+    """Carga la bóveda destilada desde un .txt local o desde Todos_Los_Ramos_Destilados_TXT.zip."""
     carpeta = os.path.dirname(os.path.abspath(__file__))
-    candidatos = [
+
+    candidatos_txt = [
         f for f in os.listdir(carpeta)
         if os.path.isfile(os.path.join(carpeta, f))
         and f.lower().endswith(".txt")
         and f not in ("requirements.txt", "packages.txt")
     ]
-    if not candidatos:
-        return None, "", {}
+    if candidatos_txt:
+        candidatos_txt.sort(key=lambda x: os.path.getsize(os.path.join(carpeta, x)), reverse=True)
+        archivo_maestro = candidatos_txt[0]
+        ruta_m = os.path.join(carpeta, archivo_maestro)
+        with open(ruta_m, "r", encoding="utf-8", errors="replace") as fp:
+            texto_total = fp.read()
 
-    candidatos.sort(key=lambda x: os.path.getsize(os.path.join(carpeta, x)), reverse=True)
-    archivo_maestro = candidatos[0]
-    ruta_m = os.path.join(carpeta, archivo_maestro)
-    with open(ruta_m, "r", encoding="utf-8", errors="replace") as fp:
-        texto_total = fp.read()
+        marcador = "==========================================================================================\nSUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS:"
+        partes = texto_total.split(marcador)
+        secciones = {}
+        for p in partes[1:]:
+            lineas = p.splitlines()
+            nombre_sec = lineas[0].strip() if lineas else "SECCIÓN"
+            secciones[nombre_sec] = marcador + p
+        if not secciones and texto_total.strip():
+            secciones[os.path.splitext(archivo_maestro)[0]] = texto_total
+        return archivo_maestro, texto_total, secciones
 
-    marcador = "==========================================================================================\nSUPER CONTEXTO DE CÁTEDRA MOODLE ULAGOS:"
-    partes = texto_total.split(marcador)
-    secciones = {}
-    for p in partes[1:]:
-        lineas = p.splitlines()
-        nombre_sec = lineas[0].strip() if lineas else "SECCIÓN"
-        secciones[nombre_sec] = marcador + p
-    return archivo_maestro, texto_total, secciones
+    candidatos_zip = [
+        f for f in os.listdir(carpeta)
+        if os.path.isfile(os.path.join(carpeta, f)) and f.lower().endswith(".zip")
+    ]
+    if candidatos_zip:
+        candidatos_zip.sort(key=lambda x: os.path.getsize(os.path.join(carpeta, x)), reverse=True)
+        archivo_zip = candidatos_zip[0]
+        ruta_z = os.path.join(carpeta, archivo_zip)
+        secciones = {}
+        bloques_tot = []
+        try:
+            with zipfile.ZipFile(ruta_z, "r") as zf:
+                for zi in sorted(zf.infolist(), key=lambda x: x.filename):
+                    if not zi.is_dir() and zi.filename.lower().endswith(".txt"):
+                        txt_i = zf.read(zi).decode("utf-8", errors="replace")
+                        nom_s = os.path.splitext(os.path.basename(zi.filename))[0]
+                        secciones[nom_s] = txt_i
+                        bloques_tot.append(f"\n{'=' * 90}\nASIGNATURA: {nom_s}\n{'=' * 90}\n{txt_i}")
+            if secciones:
+                return archivo_zip, "\n".join(bloques_tot), secciones
+        except Exception:
+            pass
+
+    return None, "", {}
 
 
 def buscar_pagina_en_destilado_local(marcador):
@@ -1245,62 +1266,6 @@ def buscar_tarjeta_por_id(cita_id):
             if t["id"] == cita_id:
                 return nombre_ramo, datos["docente"], t
     return None, None, None
-
-
-def obtener_meta_repo(nombre_repo, desc_api="", homepage_api=""):
-    if nombre_repo in MAPA_REPOS_A_RAMOS:
-        return MAPA_REPOS_A_RAMOS[nombre_repo]
-    limpio = re.sub(r"[^A-Za-z0-9]+", "_", nombre_repo).strip("_").upper()
-    return {
-        "ramo": f"Repositorio Académico: {nombre_repo}",
-        "sigla_archivo": limpio,
-        "corto": limpio[:12],
-        "docente": "Universidad de Los Lagos",
-        "app_url": homepage_api or "No especificada",
-        "repo_url": f"https://github.com/{GITHUB_USER_DEFAULT}/{nombre_repo}",
-        "descripcion": desc_api or "Repositorio de código y automatización en Python.",
-        "topics": ["python", "streamlit", "ulagos"],
-    }
-
-
-def construir_nombre_y_encabezado_personalizado(repos_seleccionados, usuario_gh):
-    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
-    if not repos_seleccionados:
-        return f"CONTEXTO_PORTAFOLIO_{fecha_hoy}.txt", "EXTRACCIÓN DE PORTAFOLIO VACÍA\n"
-
-    if len(repos_seleccionados) == 1:
-        r_nom = repos_seleccionados[0]
-        meta = obtener_meta_repo(r_nom)
-        nombre_archivo = f"CONTEXTO_{meta['sigla_archivo']}_{fecha_hoy}.txt"
-        encabezado = (
-            "=" * 94 + "\n"
-            f"CONTEXTO DE CÁTEDRA Y CÓDIGO FUENTE — ASIGNATURA: {meta['ramo'].upper()}\n"
-            f"Docente: {meta['docente']} | Repositorio GitHub: {r_nom}\n"
-            f"App Interactiva en Vivo: {meta['app_url']}\n"
-            f"Estudiante: Mauricio Alejandro Vargas Ortega ({usuario_gh}) | Fecha: {fecha_hoy}\n"
-            + "=" * 94 + "\n\n"
-        )
-        return nombre_archivo, encabezado
-
-    siglas = [obtener_meta_repo(r)["corto"] for r in repos_seleccionados[:4]]
-    sufijo = "_".join(siglas)
-    if len(repos_seleccionados) > 4:
-        sufijo += f"_Y_{len(repos_seleccionados) - 4}_MAS"
-    nombre_archivo = f"CONTEXTO_MULTIRAMO_{sufijo}_{fecha_hoy}.txt"
-
-    lista_ramos = "\n".join(
-        f"  * {r} -> {obtener_meta_repo(r)['ramo']} ({obtener_meta_repo(r)['docente']})"
-        for r in repos_seleccionados
-    )
-    encabezado = (
-        "=" * 94 + "\n"
-        f"EXTRACCIÓN MULTIRAMO PERSONALIZADA ({len(repos_seleccionados)} REPOSITORIOS SELECCIONADOS)\n"
-        f"Estudiante: Mauricio Alejandro Vargas Ortega ({usuario_gh}) | Fecha: {fecha_hoy}\n"
-        "Asignaturas y Repositorios incluidos en este archivo:\n"
-        f"{lista_ramos}\n"
-        + "=" * 94 + "\n\n"
-    )
-    return nombre_archivo, encabezado
 
 
 def formatear_cuadrilla_en_texto_plano(nombre_ramo):
@@ -1324,143 +1289,6 @@ def formatear_cuadrilla_en_texto_plano(nombre_ramo):
         lineas.append("")
     lineas.append("-" * 90 + "\n")
     return "\n".join(lineas)
-
-
-def _github_api_get(url, token=""):
-    req = urllib.request.Request(url)
-    req.add_header("Accept", "application/vnd.github.v3+json")
-    req.add_header("User-Agent", "ULagos-Academic-Context-Extractor")
-    if token.strip():
-        req.add_header("Authorization", f"Bearer {token.strip()}")
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
-def _listar_repositorios_fallback_html_y_catalogo(usuario):
-    nombres_vistos = []
-    try:
-        url_html = f"https://github.com/{usuario}?tab=repositories"
-        req = urllib.request.Request(url_html, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            html_txt = resp.read().decode("utf-8", errors="replace")
-        patron = rf'href="/{re.escape(usuario)}/([^/"?#]+)"[^>]*itemprop="name codeRepository"'
-        for m in re.finditer(patron, html_txt):
-            r_name = m.group(1).strip()
-            if r_name and r_name not in nombres_vistos:
-                nombres_vistos.append(r_name)
-    except Exception:
-        pass
-
-    for r_cat in MAPA_REPOS_A_RAMOS:
-        if r_cat not in nombres_vistos:
-            nombres_vistos.append(r_cat)
-
-    repos = []
-    for r_nom in nombres_vistos:
-        meta = obtener_meta_repo(r_nom)
-        repos.append({
-            "name": r_nom,
-            "description": meta["descripcion"],
-            "html_url": f"https://github.com/{usuario}/{r_nom}",
-            "homepage": meta["app_url"] if meta["app_url"] != "No especificada" else "",
-            "default_branch": "main",
-            "updated_at": datetime.now().strftime("%Y-%m-%d"),
-        })
-    return repos
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def listar_repositorios_usuario(usuario, token=""):
-    try:
-        url = f"https://api.github.com/users/{usuario}/repos?per_page=100&sort=updated"
-        datos = _github_api_get(url, token=token)
-        repos = []
-        for d in datos:
-            repos.append({
-                "name": d.get("name", ""),
-                "description": d.get("description") or "",
-                "html_url": d.get("html_url", ""),
-                "homepage": d.get("homepage") or "",
-                "default_branch": d.get("default_branch", "main"),
-                "updated_at": (d.get("updated_at") or "")[:10],
-            })
-        return repos, False
-    except Exception:
-        return _listar_repositorios_fallback_html_y_catalogo(usuario), True
-
-
-def _descargar_zip_repositorio_en_memoria(usuario, nombre_repo, rama_preferida="main", token=""):
-    ramas_probar = []
-    for r in [rama_preferida, "main", "master"]:
-        if r and r not in ramas_probar:
-            ramas_probar.append(r)
-
-    ultimo_error = None
-    for rama in ramas_probar:
-        url_zip = f"https://codeload.github.com/{usuario}/{nombre_repo}/zip/refs/heads/{rama}"
-        req = urllib.request.Request(url_zip, headers={"User-Agent": "Mozilla/5.0"})
-        if token.strip():
-            req.add_header("Authorization", f"Bearer {token.strip()}")
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return resp.read()
-        except Exception as e:
-            ultimo_error = e
-            continue
-    raise RuntimeError(f"No se pudo descargar el paquete ZIP de {nombre_repo}: {ultimo_error}")
-
-
-def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatura=True):
-    nombre_repo = repo_info["name"]
-    rama = repo_info.get("default_branch", "main")
-    meta = obtener_meta_repo(nombre_repo, repo_info.get("description", ""), repo_info.get("homepage", ""))
-
-    bloques = []
-    bloques.append(f"### REPOSITORIO: {nombre_repo} | ASIGNATURA: {meta['ramo']}")
-    bloques.append(f"Docente: {meta['docente']}")
-    bloques.append(f"Descripción: {repo_info.get('description') or meta['descripcion']}")
-    bloques.append(f"URL GitHub: {repo_info.get('html_url') or meta['repo_url']}")
-    if meta["app_url"] and meta["app_url"] != "No especificada":
-        bloques.append(f"App Streamlit en Vivo: {meta['app_url']}")
-    bloques.append("-" * 90)
-
-    if incluir_literatura and meta["ramo"] in CUADRILLAS_LITERATURA_POR_RAMO:
-        bloques.append(formatear_cuadrilla_en_texto_plano(meta["ramo"]))
-
-    try:
-        zip_bytes = _descargar_zip_repositorio_en_memoria(usuario, nombre_repo, rama_preferida=rama, token=token)
-        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
-            archivos_zip = []
-            for zinfo in zf.infolist():
-                if zinfo.is_dir():
-                    continue
-                partes = zinfo.filename.split("/", 1)
-                ruta_rel = partes[1] if len(partes) > 1 else zinfo.filename
-                if ruta_rel:
-                    archivos_zip.append((ruta_rel, zinfo))
-
-            archivos_zip.sort(key=lambda x: x[0])
-
-            bloques.append("#### INVENTARIO DE ARCHIVOS:")
-            for ruta_rel, zinfo in archivos_zip:
-                bloques.append(f"  - {ruta_rel} ({zinfo.file_size} bytes)")
-            bloques.append("")
-
-            for ruta_rel, zinfo in archivos_zip:
-                if ruta_rel.lower().endswith(EXTENSIONES_TEXTO_PERMITIDAS):
-                    bloques.append(f"#### ARCHIVO: {nombre_repo}/{ruta_rel}")
-                    bloques.append("-" * 70)
-                    try:
-                        raw_bytes = zf.read(zinfo)
-                        texto_decodificado = raw_bytes.decode("utf-8", errors="replace")
-                        bloques.append(texto_decodificado)
-                    except Exception as exc:
-                        bloques.append(f"[Aviso: No se pudo decodificar {ruta_rel}: {exc}]")
-                    bloques.append("\n")
-    except Exception as exc_zip:
-        bloques.append(f"[Aviso al extraer {nombre_repo}: {exc_zip}]\n")
-
-    return "\n".join(bloques)
 
 
 # ==============================================================================
@@ -1518,7 +1346,7 @@ if not ES_MODO_PUENTE_REMOTO:
         """
         <div class="top-banner">
             <h1>SUPER HUB ACADÉMICO Y CENTRAL DE MANDO ULAGOS 2026: GITHUB CMS + GOOGLE DRIVE API (5 TB)</h1>
-            <p>Conectado a Google Cloud (motor-sii-python) y GitHub API para controlar remotamente About, README.md, requirements.txt y app.py desde un solo panel seguro.</p>
+            <p>Conectado a Google Cloud (motor-sii-python) y GitHub API para extraer todo tu portafolio y controlar remotamente About, README.md, requirements.txt y app.py desde un solo panel seguro.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1572,7 +1400,7 @@ if not ES_MODO_PUENTE_REMOTO:
         usuario_gh = st.text_input("Usuario GitHub:", value=GITHUB_USER_DEFAULT)
 
         clave_admin = st.text_input(
-            "Clave Admin (desbloquea Pestaña 5):",
+            "Clave Admin (desbloquea repos privados y Pestaña 5):",
             value="",
             type="password",
             help="Valida tu identidad en servidor. El token de GitHub nunca se envía al navegador.",
@@ -1611,114 +1439,37 @@ if not ES_MODO_PUENTE_REMOTO:
             st.rerun()
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "1. Extractor GitHub por Ramo",
+        "1. Super Extractor GitHub",
         "2. Cuadrillas y Visor PDF (Drive API)",
         "3. Explorador Quirúrgico Google Drive (.ZIP)",
         "4. Bóveda Destilada en 1 Clic",
         "5. Super Central de Mando (Editor Remoto de Repos)",
     ])
 
-    lista_repos, usando_fallback = listar_repositorios_usuario(usuario_gh, token=token_gh)
-    mapa_objetos_repo = {r["name"]: r for r in lista_repos} if lista_repos else {}
-    nombres_disponibles = list(mapa_objetos_repo.keys()) if mapa_objetos_repo else list(MAPA_REPOS_A_RAMOS.keys())
-
     # --------------------------------------------------------------------------
-    # PESTAÑA 1: EXTRACTOR GITHUB POR RAMO (INMUNE A HTTP 403)
+    # PESTAÑA 1: SUPER EXTRACTOR GITHUB (MÓDULO EXTERNO extractor_github_avanzado.py)
     # --------------------------------------------------------------------------
     with tab1:
-        st.markdown(
-            "<div class='sec-header'>1. SELECCIÓN DE RAMOS / REPOSITORIOS Y NOMENCLATURA PERSONALIZADA</div>",
-            unsafe_allow_html=True,
-        )
-        if usando_fallback:
-            st.caption("Modo Directo Codeload Activo: Catálogo cargado vía web directa.")
+        try:
+            from extractor_github_avanzado import renderizar_extractor_github
 
-        if nombres_disponibles:
-            c_filtro, c_sel = st.columns([1.3, 2.7])
-            with c_filtro:
-                modo_seleccion = st.radio(
-                    "Modo de empaquetado:",
-                    options=[
-                        "Por Ramo / Asignatura Específica",
-                        "Selección Manual de Repositorios",
-                        "Portafolio Completo (Todos)",
-                    ],
-                )
-
-            with c_sel:
-                if modo_seleccion == "Por Ramo / Asignatura Específica":
-                    opciones_ramos = [
-                        f"{k} — {v['ramo']}"
-                        for k, v in MAPA_REPOS_A_RAMOS.items()
-                        if k in mapa_objetos_repo
-                    ]
-                    if not opciones_ramos:
-                        opciones_ramos = nombres_disponibles
-                    elegido_ramo = st.selectbox("Selecciona la Asignatura / Repositorio a descargar:", options=opciones_ramos)
-                    repo_clave = elegido_ramo.split(" — ")[0].strip()
-                    repos_seleccionados = [repo_clave] if repo_clave in mapa_objetos_repo else [nombres_disponibles[0]]
-                elif modo_seleccion == "Selección Manual de Repositorios":
-                    default_init = ["PROYECTOS-2026"] if "PROYECTOS-2026" in nombres_disponibles else nombres_disponibles[:1]
-                    repos_seleccionados = st.multiselect(
-                        "Elige uno o más repositorios (el archivo adoptará sus nombres):",
-                        options=nombres_disponibles,
-                        default=default_init,
-                    )
-                else:
-                    repos_seleccionados = nombres_disponibles
-                    st.info(f"Se empaquetarán los {len(repos_seleccionados)} repositorios públicos de {usuario_gh}.")
-
-            nombre_sugerido, encabezado_sugerido = construir_nombre_y_encabezado_personalizado(
-                repos_seleccionados, usuario_gh
+            renderizar_extractor_github(
+                usuario_gh=usuario_gh,
+                token_gh=token_gh,
+                mapa_repos=MAPA_REPOS_A_RAMOS,
+                incluir_lit_en_txt=incluir_lit_en_txt,
+                fn_formatear_cuadrilla=formatear_cuadrilla_en_texto_plano,
+                fn_cargar_boveda=cargar_boveda_moodle_del_repo,
             )
-
-            col_nom1, col_nom2 = st.columns([2.2, 1.8])
-            with col_nom1:
-                nombre_archivo_final = st.text_input(
-                    "Nombre del archivo .TXT a descargar (generado automáticamente según tu selección):",
-                    value=nombre_sugerido,
-                )
-            with col_nom2:
-                st.markdown("**Vista previa de asignaturas detectadas:**")
-                for r_sel in repos_seleccionados[:4]:
-                    m_info = obtener_meta_repo(r_sel)
-                    st.caption(f"• `{r_sel}` → **{m_info['ramo']}** ({m_info['docente']})")
-
-            if st.button("COMPILAR CONTEXTO PERSONALIZADO DE LOS RAMOS SELECCIONADOS", type="primary", use_container_width=True):
-                if not repos_seleccionados:
-                    st.warning("Selecciona al menos un repositorio para compilar.")
-                else:
-                    partes_txt = [encabezado_sugerido]
-                    barra = st.progress(0, text="Iniciando descarga directa en memoria desde Codeload GitHub...")
-                    for idx, r_nom in enumerate(repos_seleccionados):
-                        barra.progress(
-                            idx / len(repos_seleccionados),
-                            text=f"Empaquetando {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
-                        )
-                        r_obj = mapa_objetos_repo.get(r_nom, {"name": r_nom, "default_branch": "main"})
-                        bloque_repo = extraer_repositorio_completo(
-                            usuario_gh,
-                            r_obj,
-                            token=token_gh,
-                            incluir_literatura=incluir_lit_en_txt,
-                        )
-                        partes_txt.append(bloque_repo)
-                    barra.progress(1.0, text="Compilación finalizada correctamente.")
-                    st.session_state["txt_compilado_contenido"] = "\n".join(partes_txt)
-                    st.session_state["txt_compilado_nombre"] = nombre_archivo_final
-
-            if "txt_compilado_contenido" in st.session_state:
-                tam_kb = len(st.session_state["txt_compilado_contenido"].encode("utf-8")) / 1024.0
-                st.success(
-                    f"Archivo listo: {st.session_state['txt_compilado_nombre']} ({tam_kb:,.1f} KB compilados)."
-                )
-                st.download_button(
-                    label=f"DESCARGAR {st.session_state['txt_compilado_nombre']}",
-                    data=st.session_state["txt_compilado_contenido"].encode("utf-8"),
-                    file_name=st.session_state["txt_compilado_nombre"],
-                    mime="text/plain",
-                    use_container_width=True,
-                )
+        except ImportError:
+            st.error(
+                "Falta subir el archivo `extractor_github_avanzado.py` en la raíz del repositorio "
+                "`github-context-extractor` para activar el Super Extractor."
+            )
+        except SyntaxError as exc_syn1:
+            st.error(
+                f"Error de sintaxis en `extractor_github_avanzado.py` (línea {exc_syn1.lineno}): {exc_syn1.msg}."
+            )
 
     # --------------------------------------------------------------------------
     # PESTAÑA 2: CUADRILLAS CON APERTURA QUIRÚRGICA DE PDF DESDE GOOGLE DRIVE API
@@ -1938,7 +1689,7 @@ if not ES_MODO_PUENTE_REMOTO:
                 st.write(f"Mostrando las primeras {len(bloques_encontrados)} coincidencias con contexto de página:")
                 st.code("\n\n" + ("\n" + "=" * 60 + "\n").join(bloques_encontrados), language="text")
         else:
-            st.info("No se encontró ningún archivo `.txt` destilado en la raíz del repositorio.")
+            st.info("No se encontró ningún archivo `.txt` ni `.zip` destilado en la raíz del repositorio.")
 
     # --------------------------------------------------------------------------
     # PESTAÑA 5: SUPER CENTRAL DE MANDO (MÓDULO EXTERNO central_mando_github.py)
