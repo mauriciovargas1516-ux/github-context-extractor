@@ -2,16 +2,20 @@
 """
 app.py — HUB CENTRAL DE APLICACIONES Y EXTRACTOR DE CONTEXTO POR RAMO (ULAGOS 2026)
 Repositorio: https://github.com/mauriciovargas1516-ux/github-context-extractor
+- BLINDAJE ANTI-RATE-LIMIT (HTTP 403):
+  1) Extrae todos los archivos de cada repositorio descargando el paquete .ZIP en memoria RAM
+     directamente desde codeload.github.com (0 llamadas por archivo a api.github.com, sin límite de 60/hora).
+  2) Si api.github.com devuelve HTTP 403 al listar repositorios, activa automáticamente el
+     lector HTML de respaldo y el catálogo interno sin interrumpir la aplicación.
 - Nomenclatura dinámica por asignatura o combinación de repositorios seleccionados.
-- Cuadrillas Metodológicas con HIPERVÍNCULOS DIRECTOS a la literatura oficial (incluyendo
-  saltos #page=N a la página exacta de los PDFs oficiales, enlaces a Leyes BCN/SNI/SII/CEPAL,
-  hipervínculos internos ?cita=ID al extracto literal de las láminas de Moodle y enlaces a las apps).
+- Cuadrillas Metodológicas con HIPERVÍNCULOS DIRECTOS a la literatura oficial (#page=N y ?cita=ID).
 """
 
+import io
 import os
 import re
 import json
-import base64
+import zipfile
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -217,7 +221,7 @@ MAPA_REPOS_A_RAMOS = {
         "docente": "Portafolio Ingeniería Comercial ULagos",
         "app_url": "https://app-context-extractor-d8x5kwfdodzvmx7m3vean.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/github-context-extractor",
-        "descripcion": "Motor centralizado de compilación vía API REST de GitHub y biblioteca metodológica con citas de cátedra.",
+        "descripcion": "Motor centralizado de compilación vía descarga directa ZIP y biblioteca metodológica con citas de cátedra.",
     },
 }
 
@@ -665,7 +669,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
 
 
 # ==============================================================================
-# 3. FUNCIONES DE BÚSQUEDA EN ARCHIVOS LOCALES Y EXTRACCIÓN GITHUB API
+# 3. MOTOR ANTI-RATE-LIMIT: DESCARGA ZIP VÍA CODELOAD Y FALLBACK DE REPOSITORIOS
 # ==============================================================================
 
 EXTENSIONES_TEXTO_PERMITIDAS = (
@@ -676,7 +680,6 @@ EXTENSIONES_TEXTO_PERMITIDAS = (
 
 @st.cache_data(show_spinner=False)
 def cargar_texto_destilado_local():
-    """Carga el archivo .txt destilado de cátedra si existe en el repositorio para búsquedas de páginas."""
     carpeta = os.path.dirname(os.path.abspath(__file__))
     for f in os.listdir(carpeta):
         if f.lower().endswith(".txt") and f not in ("requirements.txt", "packages.txt"):
@@ -690,7 +693,6 @@ def cargar_texto_destilado_local():
 
 
 def buscar_pagina_en_destilado_local(marcador):
-    """Extrae el bloque de la página desde el archivo local destilado si está presente en el repo."""
     _, texto_completo = cargar_texto_destilado_local()
     if not texto_completo or not marcador:
         return None
@@ -798,24 +800,95 @@ def _github_api_get(url, token=""):
         return json.loads(resp.read().decode("utf-8"))
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def listar_repositorios_usuario(usuario, token=""):
-    url = f"https://api.github.com/users/{usuario}/repos?per_page=100&sort=updated"
-    datos = _github_api_get(url, token=token)
+def _listar_repositorios_fallback_html_y_catalogo(usuario):
+    """
+    Si api.github.com devuelve HTTP 403 (rate limit exceeded), obtiene los repositorios
+    directamente del HTML público de GitHub (que no tiene límite de 60 llamadas) y los
+    combina con el catálogo de asignaturas conocido.
+    """
+    nombres_vistos = []
+    try:
+        url_html = f"https://github.com/{usuario}?tab=repositories"
+        req = urllib.request.Request(url_html, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            html_txt = resp.read().decode("utf-8", errors="replace")
+        patron = rf'href="/{re.escape(usuario)}/([^/"?#]+)"[^>]*itemprop="name codeRepository"'
+        for m in re.finditer(patron, html_txt):
+            r_name = m.group(1).strip()
+            if r_name and r_name not in nombres_vistos:
+                nombres_vistos.append(r_name)
+    except Exception:
+        pass
+
+    for r_cat in MAPA_REPOS_A_RAMOS:
+        if r_cat not in nombres_vistos:
+            nombres_vistos.append(r_cat)
+
     repos = []
-    for d in datos:
+    for r_nom in nombres_vistos:
+        meta = obtener_meta_repo(r_nom)
         repos.append({
-            "name": d.get("name", ""),
-            "description": d.get("description") or "",
-            "html_url": d.get("html_url", ""),
-            "homepage": d.get("homepage") or "",
-            "default_branch": d.get("default_branch", "main"),
-            "updated_at": (d.get("updated_at") or "")[:10],
+            "name": r_nom,
+            "description": meta["descripcion"],
+            "html_url": f"https://github.com/{usuario}/{r_nom}",
+            "homepage": meta["app_url"] if meta["app_url"] != "No especificada" else "",
+            "default_branch": "main",
+            "updated_at": datetime.now().strftime("%Y-%m-%d"),
         })
     return repos
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def listar_repositorios_usuario(usuario, token=""):
+    try:
+        url = f"https://api.github.com/users/{usuario}/repos?per_page=100&sort=updated"
+        datos = _github_api_get(url, token=token)
+        repos = []
+        for d in datos:
+            repos.append({
+                "name": d.get("name", ""),
+                "description": d.get("description") or "",
+                "html_url": d.get("html_url", ""),
+                "homepage": d.get("homepage") or "",
+                "default_branch": d.get("default_branch", "main"),
+                "updated_at": (d.get("updated_at") or "")[:10],
+            })
+        return repos, False
+    except Exception:
+        # Fallback instantáneo sin error 403
+        return _listar_repositorios_fallback_html_y_catalogo(usuario), True
+
+
+def _descargar_zip_repositorio_en_memoria(usuario, nombre_repo, rama_preferida="main", token=""):
+    """
+    Descarga el archivo .ZIP completo del repositorio desde codeload.github.com en una sola
+    petición HTTP (NO consume cuota de api.github.com y es inmune al Error 403).
+    """
+    ramas_probar = []
+    for r in [rama_preferida, "main", "master"]:
+        if r and r not in ramas_probar:
+            ramas_probar.append(r)
+
+    ultimo_error = None
+    for rama in ramas_probar:
+        url_zip = f"https://codeload.github.com/{usuario}/{nombre_repo}/zip/refs/heads/{rama}"
+        req = urllib.request.Request(url_zip, headers={"User-Agent": "Mozilla/5.0"})
+        if token.strip():
+            req.add_header("Authorization", f"token {token.strip()}")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                return resp.read()
+        except Exception as e:
+            ultimo_error = e
+            continue
+    raise RuntimeError(f"No se pudo descargar el paquete ZIP de {nombre_repo}: {ultimo_error}")
+
+
 def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatura=True):
+    """
+    Extrae el inventario y todos los archivos de código de un repositorio descomprimiendo su
+    paquete ZIP en memoria RAM (0 llamadas a api.github.com).
+    """
     nombre_repo = repo_info["name"]
     rama = repo_info.get("default_branch", "main")
     meta = obtener_meta_repo(nombre_repo, repo_info.get("description", ""), repo_info.get("homepage", ""))
@@ -832,29 +905,38 @@ def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatur
     if incluir_literatura and meta["ramo"] in CUADRILLAS_LITERATURA_POR_RAMO:
         bloques.append(formatear_cuadrilla_en_texto_plano(meta["ramo"]))
 
-    url_tree = f"https://api.github.com/repos/{usuario}/{nombre_repo}/git/trees/{rama}?recursive=1"
-    tree_data = _github_api_get(url_tree, token=token)
-    items = [x for x in tree_data.get("tree", []) if x.get("type") == "blob"]
+    try:
+        zip_bytes = _descargar_zip_repositorio_en_memoria(usuario, nombre_repo, rama_preferida=rama, token=token)
+        with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+            archivos_zip = []
+            for zinfo in zf.infolist():
+                if zinfo.is_dir():
+                    continue
+                partes = zinfo.filename.split("/", 1)
+                ruta_rel = partes[1] if len(partes) > 1 else zinfo.filename
+                if ruta_rel:
+                    archivos_zip.append((ruta_rel, zinfo))
 
-    bloques.append("#### INVENTARIO DE ARCHIVOS:")
-    for it in items:
-        bloques.append(f"  - {it['path']} ({it.get('size', 0)} bytes)")
-    bloques.append("")
+            archivos_zip.sort(key=lambda x: x[0])
 
-    for it in items:
-        ruta_arch = it["path"]
-        if ruta_arch.lower().endswith(EXTENSIONES_TEXTO_PERMITIDAS):
-            bloques.append(f"#### ARCHIVO: {nombre_repo}/{ruta_arch}")
-            bloques.append("-" * 70)
-            try:
-                blob_url = it["url"]
-                blob_json = _github_api_get(blob_url, token=token)
-                contenido_b64 = blob_json.get("content", "")
-                texto_decodificado = base64.b64decode(contenido_b64).decode("utf-8", errors="replace")
-                bloques.append(texto_decodificado)
-            except Exception as exc:
-                bloques.append(f"[Aviso: No se pudo decodificar {ruta_arch}: {exc}]")
-            bloques.append("\n")
+            bloques.append("#### INVENTARIO DE ARCHIVOS:")
+            for ruta_rel, zinfo in archivos_zip:
+                bloques.append(f"  - {ruta_rel} ({zinfo.file_size} bytes)")
+            bloques.append("")
+
+            for ruta_rel, zinfo in archivos_zip:
+                if ruta_rel.lower().endswith(EXTENSIONES_TEXTO_PERMITIDAS):
+                    bloques.append(f"#### ARCHIVO: {nombre_repo}/{ruta_rel}")
+                    bloques.append("-" * 70)
+                    try:
+                        raw_bytes = zf.read(zinfo)
+                        texto_decodificado = raw_bytes.decode("utf-8", errors="replace")
+                        bloques.append(texto_decodificado)
+                    except Exception as exc:
+                        bloques.append(f"[Aviso: No se pudo decodificar {ruta_rel}: {exc}]")
+                    bloques.append("\n")
+    except Exception as exc_zip:
+        bloques.append(f"[Aviso al extraer {nombre_repo}: {exc_zip}]\n")
 
     return "\n".join(bloques)
 
@@ -876,7 +958,6 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
             if i + j < len(tarjetas):
                 t = tarjetas[i + j]
                 with cols[j]:
-                    # Construir barra de hipervínculos externos (#page=N) + hipervínculo interno (?cita=ID)
                     links_html = [
                         f"<a class='lit-link-internal' href='?cita={t['id']}' target='_self'>"
                         f"Ver Extracto Literal de la Página/Lámina</a>"
@@ -918,13 +999,12 @@ st.markdown(
     """
     <div class="top-banner">
         <h1>HUB DE APLICACIONES Y EXTRACTOR DE CONTEXTO ACADÉMICO POR RAMO (ULAGOS 2026)</h1>
-        <p>Compilación en vivo vía API REST de GitHub con nomenclatura dinámica por asignatura, cuadrillas metodológicas e hipervínculos directos a la página exacta de la literatura.</p>
+        <p>Compilación en vivo vía descarga directa ZIP (sin límite de llamadas API) con nomenclatura dinámica por asignatura, cuadrillas metodológicas e hipervínculos directos a la literatura.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-# Si el usuario hizo clic en un hipervínculo interno (?cita=ID), mostrar el visor destacado arriba
 cita_activa = st.query_params.get("cita", None)
 if cita_activa:
     ramo_c, doc_c, tarjeta_c = buscar_tarjeta_por_id(cita_activa)
@@ -966,7 +1046,7 @@ with st.sidebar:
     except Exception:
         token_default = ""
     token_gh = st.text_input(
-        "Token GitHub (Opcional para ampliar límite API):",
+        "Token GitHub (Opcional):",
         value=token_default,
         type="password",
     )
@@ -979,14 +1059,14 @@ with st.sidebar:
         st.rerun()
 
 tab1, tab2, tab3, tab4 = st.tabs([
-    "1. Extractor Personalizado por Ramo (GitHub API)",
+    "1. Extractor Personalizado por Ramo (Sin Límite API)",
     "2. Cuadrillas con Hipervínculos a la Literatura",
     "3. Directorio de Plataformas Streamlit en Vivo",
     "4. Buscador en Archivos de Cátedra Destilados",
 ])
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 1: EXTRACTOR PERSONALIZADO POR RAMO
+# PESTAÑA 1: EXTRACTOR PERSONALIZADO POR RAMO (INMUNE A ERROR 403)
 # ------------------------------------------------------------------------------
 with tab1:
     st.markdown(
@@ -994,11 +1074,12 @@ with tab1:
         unsafe_allow_html=True,
     )
 
-    try:
-        lista_repos = listar_repositorios_usuario(usuario_gh, token=token_gh)
-    except Exception as e:
-        st.error(f"No fue posible consultar la API de GitHub en este momento: {e}")
-        lista_repos = []
+    lista_repos, usando_fallback = listar_repositorios_usuario(usuario_gh, token=token_gh)
+    if usando_fallback:
+        st.caption(
+            "Modo Directo Codeload Activo: Lista de repositorios cargada vía catálogo web directo "
+            "(evitando el límite de 60 consultas/hora de api.github.com)."
+        )
 
     if lista_repos:
         mapa_objetos_repo = {r["name"]: r for r in lista_repos}
@@ -1062,11 +1143,11 @@ with tab1:
                 st.warning("Selecciona al menos un repositorio para compilar.")
             else:
                 partes_txt = [encabezado_sugerido]
-                barra = st.progress(0, text="Iniciando extracción desde GitHub API...")
+                barra = st.progress(0, text="Iniciando descarga directa en memoria desde Codeload GitHub...")
                 for idx, r_nom in enumerate(repos_seleccionados):
                     barra.progress(
                         (idx) / len(repos_seleccionados),
-                        text=f"Extrayendo {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
+                        text=f"Empaquetando {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
                     )
                     r_obj = mapa_objetos_repo[r_nom]
                     bloque_repo = extraer_repositorio_completo(
