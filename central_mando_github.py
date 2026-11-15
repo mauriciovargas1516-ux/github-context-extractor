@@ -53,6 +53,17 @@ PAQUETES_CATALOGO = [
     "scikit-learn",
 ]
 
+URLS_STREAMLIT_OFICIALES_2026 = {
+    "DESARROLLO-Y-GESTION-TERRITORIAL-2026": "https://desarrollo-y-gestion-territorial-2026-azi4k3liecm2g45r97lkff.streamlit.app/",
+    "FINANZAS-AVANZADAS-2026": "https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/",
+    "FINANZAS-AVANZADAS": "https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/",
+    "GESTION-TRIBUTARIA-2026": "https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/",
+    "github-context-extractor": "https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/",
+    "moodle-hybrid-scraper": "https://moodle-hybrid-scraper-dcwiyhxggcp9uzk8l5tbd9.streamlit.app/",
+    "PROYECTOS-2026": "https://proyectos-2026-boqbuffwgsafjmtq7nezgh.streamlit.app/",
+    "mauriciovargas1516-ux": "https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/",
+}
+
 CATALOGO_EXTRA_ABOUT = {
     "mauriciovargas1516-ux": {
         "ramo": "Perfil GitHub y Portafolio Principal",
@@ -448,6 +459,7 @@ def alinear_links_en_readme_perfil_usuario(usuario, mapa_urls_activas, token):
 
     patrones_Prefijo = {
         "github-context-extractor": r"https://[a-zA-Z0-9-]*context-extractor[a-zA-Z0-9-]*\.streamlit\.app/?",
+        "moodle-hybrid-scraper": r"https://[a-zA-Z0-9-]*moodle-hybrid-scraper[a-zA-Z0-9-]*\.streamlit\.app/?",
         "PROYECTOS-2026": r"https://proyectos-2026-[a-zA-Z0-9-]+\.streamlit\.app/?",
         "DESARROLLO-Y-GESTION-TERRITORIAL-2026": r"https://[a-zA-Z0-9-]*territorial[a-zA-Z0-9-]*\.streamlit\.app/?",
         "FINANZAS-AVANZADAS-2026": r"https://finanzas-avanzadas[a-zA-Z0-9-]*\.streamlit\.app/?",
@@ -546,6 +558,10 @@ def renderizar_central_de_mando(
     mapa_combinado = dict(CATALOGO_EXTRA_ABOUT)
     if mapa_repos:
         mapa_combinado.update(mapa_repos)
+    for _r_k, _u_of in URLS_STREAMLIT_OFICIALES_2026.items():
+        if _r_k in mapa_combinado:
+            mapa_combinado[_r_k] = dict(mapa_combinado[_r_k])
+            mapa_combinado[_r_k]["app_url"] = _u_of
     cuadrillas_lit = cuadrillas_lit or {}
 
     st.markdown(
@@ -652,7 +668,7 @@ def renderizar_central_de_mando(
             repos_sync_ab = st.multiselect(
                 "Repos a sincronizar en lote:",
                 options=[r for r in nombres_repos if r in mapa_combinado],
-                default=[r for r in ["github-context-extractor", "PROYECTOS-2026", "DESARROLLO-Y-GESTION-TERRITORIAL-2026", "FINANZAS-AVANZADAS-2026", "GESTION-TRIBUTARIA-2026", usuario_gh] if r in mapa_live and r in mapa_combinado],
+                default=[r for r in ["github-context-extractor", "moodle-hybrid-scraper", "PROYECTOS-2026", "DESARROLLO-Y-GESTION-TERRITORIAL-2026", "FINANZAS-AVANZADAS-2026", "FINANZAS-AVANZADAS", "GESTION-TRIBUTARIA-2026", usuario_gh] if r in mapa_live and r in mapa_combinado],
                 key="cm_ab_lote_sel",
             )
             incluir_readmes_y_perfil = st.checkbox(
@@ -697,7 +713,7 @@ def renderizar_central_de_mando(
 
         with c_ab2:
             desc_init = info_live["description"] or info_cat.get("descripcion", "")
-            url_init = info_live["homepage"] or info_cat.get("app_url", "")
+            url_init = URLS_STREAMLIT_OFICIALES_2026.get(repo_ab) or info_cat.get("app_url", "") or info_live["homepage"]
             top_init = ", ".join(info_live["topics"] or info_cat.get("topics", ["python", "streamlit"]))
 
             nueva_desc = st.text_input(
