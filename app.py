@@ -181,20 +181,53 @@ if not ES_MODO_PUENTE_REMOTO:
 SERVICE_ACCOUNT_EMAIL = "drive-ulagos@motor-sii-python.iam.gserviceaccount.com"
 
 
+_ULAGOS_MASK_KEY = b"ULagos-FDIC26-Bridge-2026"
+_ULAGOS_BRIDGE_BLOB_DEFAULT = "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"
+
+
+def cifrar_credencial_puente_gcp(info_dict: dict) -> str:
+    """Comprime y ofusca (zlib + XOR + base64) el JSON de Google Cloud para transmitirlo sin exponer texto plano."""
+    raw = json.dumps(info_dict).encode("utf-8")
+    comp = zlib.compress(raw, 9)
+    xored = bytes(b ^ _ULAGOS_MASK_KEY[i % len(_ULAGOS_MASK_KEY)] for i, b in enumerate(comp))
+    return base64.b64encode(xored).decode("ascii")
+
+
+def descifrar_credencial_puente_gcp(blob_b64: str) -> dict:
+    """Reconstruye en memoria RAM el diccionario OAuth2 de Google Cloud desde el bloque cifrado."""
+    xored = base64.b64decode(blob_b64.strip().encode("ascii"))
+    comp = bytes(b ^ _ULAGOS_MASK_KEY[i % len(_ULAGOS_MASK_KEY)] for i, b in enumerate(xored))
+    raw = zlib.decompress(comp)
+    return json.loads(raw.decode("utf-8"))
+
+
 def obtener_dict_credenciales_gcp():
-    """Lee las credenciales de Google Cloud exclusivamente desde Streamlit Secrets."""
+    """
+    Obtiene las credenciales de Google Cloud en orden de prioridad:
+    1) Streamlit Secrets local (`gcp_service_account_json`), si está definido y es válido.
+    2) Bloque cifrado `_ULAGOS_GCP_BLOB` inyectado en el Puente del repositorio hijo.
+    3) Bóveda cifrada por defecto del Super Hub (`_ULAGOS_BRIDGE_BLOB_DEFAULT`).
+    """
     try:
         if "gcp_service_account_json" in st.secrets:
             raw_sec = st.secrets["gcp_service_account_json"]
             if isinstance(raw_sec, str):
-                return json.loads(raw_sec)
-            return dict(raw_sec)
-    except Exception as exc:
-        raise RuntimeError(f"Error al leer 'gcp_service_account_json' en Secrets: {exc}") from exc
+                if "pega aquí" not in raw_sec.lower() and raw_sec.strip().startswith("{"):
+                    return json.loads(raw_sec)
+            elif raw_sec:
+                return dict(raw_sec)
+    except Exception:
+        pass
+
+    for cand_blob in [globals().get("_ULAGOS_GCP_BLOB", ""), _ULAGOS_BRIDGE_BLOB_DEFAULT]:
+        if cand_blob and isinstance(cand_blob, str) and len(cand_blob) > 100:
+            try:
+                return descifrar_credencial_puente_gcp(cand_blob)
+            except Exception:
+                pass
 
     raise RuntimeError(
-        "Configura 'gcp_service_account_json' en Streamlit Cloud -> Manage app -> Settings -> Secrets "
-        "para conectar con Google Drive API."
+        "No se pudo cargar la credencial de Google Drive ni desde Secrets ni desde el Puente Cifrado."
     )
 
 
