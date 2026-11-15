@@ -499,7 +499,7 @@ MAPA_REPOS_A_RAMOS = {
         "sigla_archivo": "EVALUACION_INTEGRADA_PROYECTOS_FDIC26",
         "corto": "PROYECTOS",
         "docente": "Dra. Luz María Ferrada B.",
-        "app_url": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
+        "app_url": "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/PROYECTOS-2026",
         "descripcion": "Formulación, evaluación financiera privada, evaluación social SNI/MIDESO 2026 y valoración ambiental RA1/RA2.",
         "topics": ["python", "streamlit", "evaluacion-de-proyectos", "sni-chile", "ulagos", "ingenieria-comercial"],
@@ -569,7 +569,7 @@ MAPA_REPOS_A_RAMOS = {
 CUADRILLAS_LITERATURA_POR_RAMO = {
     "Evaluación Integrada de Proyectos (FDIC26)": {
         "docente": "Dra. Luz María Ferrada B.",
-        "app_url": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
+        "app_url": "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/",
         "tarjetas": [
             {
                 "id": "proy_sni_2026",
@@ -599,7 +599,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "links": [
                     ("Portal Precios Sociales SNI 2026", "https://sni.gob.cl/formulacion-de-iniciativas/precios-sociales/"),
                     ("Estudio Oficial PSMO (CIUO-08 PDF)", "https://sni.gob.cl/storage/docs/Informe_Final_PSMO.pdf"),
-                    ("Abrir Simulador Proyectos 2026", "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/"),
+                    ("Abrir Simulador Proyectos 2026", "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/"),
                 ],
             },
             {
@@ -629,7 +629,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "links": [
                     ("Libro Fontaine (2008) PDF — Cap. V (Pág. 207)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=207"),
                     ("Libro Fontaine (2008) PDF — Cap. VII (Pág. 381)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=381"),
-                    ("Ver Gráfico Interactivo en App Proyectos", "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/"),
+                    ("Ver Gráfico Interactivo en App Proyectos", "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/"),
                 ],
             },
             {
@@ -663,7 +663,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "doc_pdf": "MARCO LOGICO.pdf",
                 "pag_pdf": 8,
                 "titulo": "4. Árboles Causales, Población SNI y Matriz de Marco Lógico (MML)",
-                "formula": r"\text{Población Referencia} \supset \text{Población Afectada (Con Problema)} \supset \text{Población Objetivo}",
+                "formula": r"\text{Pob. Referencia} \supset \text{Pob. Afectada} \supset \text{Pob. Objetivo}",
                 "tip": (
                     "Nunca redactes el problema como 'falta de una solución' (ej. 'falta un camión recolector' o 'no hay consultorio'). "
                     "En el Marco Lógico: (1) cada programa tiene un único Propósito (que nace del Objetivo Central del árbol), "
@@ -717,7 +717,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "doc_pdf": "Clase1 (18 ago).pdf",
                 "pag_pdf": 29,
                 "titulo": "6. Flujo Privado Puro vs. Flujo Financiado y Capital de Trabajo",
-                "formula": r"Cuota = P \cdot \frac{r(1+r)^n}{(1+r)^n - 1} \quad | \quad CT_{desfase} = \frac{\text{Costos Anuales} \times \text{Días Desfase}}{365}",
+                "formula": r"Cuota = P \cdot \frac{r(1+r)^n}{(1+r)^n - 1} \quad ; \quad CT = \frac{C_{Anual} \cdot d}{365}",
                 "tip": (
                     "En el flujo con deuda, solo los intereses bancarios se restan antes de impuestos (creando escudo fiscal), "
                     "mientras que la amortización del principal se resta después de impuestos en el Flujo de Capitales. "
@@ -1104,9 +1104,28 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1, prefijo_key="h
             )
             return
 
-    st.warning(
-        f"No se encontró `{nombre_pdf}` o falta configurar `gcp_service_account_json` en Streamlit Secrets."
-    )
+    tiene_secret_local = False
+    try:
+        tiene_secret_local = bool(st.secrets.get("gcp_service_account_json"))
+    except Exception:
+        tiene_secret_local = False
+
+    if not tiene_secret_local:
+        st.info(
+            f"**Para ver `{nombre_pdf}` incrustado directamente en esta app:** Abre **Manage app ➔ Settings ➔ Secrets** "
+            f"abajo a la derecha y pega el bloque `gcp_service_account_json` de tu Super Hub, o ábrelo en 1 clic en el visor central:"
+        )
+        st.markdown(
+            f"<a href='https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/' target='_blank' "
+            f"style='display:inline-block;background:#15803D;color:#FFFFFF;padding:7px 14px;border-radius:6px;"
+            f"font-weight:700;font-size:12.5px;text-decoration:none;'>"
+            f"Abrir '{nombre_pdf}' (Pág. {int(p_ini_sel)}) en el Visor del Super Hub &#8599;</a>",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.warning(
+            f"No se encontró `{nombre_pdf}` en la carpeta de Google Drive compartida con `{SERVICE_ACCOUNT_EMAIL}`."
+        )
 
 
 # ==============================================================================
@@ -1120,6 +1139,19 @@ def ejecutar_nodo_receptor_puente(nombre_repo_hijo="PROYECTOS-2026"):
         ramo_defecto = "Evaluación Integrada de Proyectos (FDIC26)"
 
     st.divider()
+    st.markdown(
+        """
+        <style>
+        .katex-display {
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            padding-bottom: 4px !important;
+            font-size: 0.92em !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(
         f"""
         <div style="background-color:#0F172A;color:#FFFFFF;padding:14px 20px;border-radius:8px;
