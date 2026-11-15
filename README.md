@@ -105,10 +105,10 @@ Consola de administración remota conectada a la API REST de GitHub para aplicar
 | Asignatura / Plataforma | Docente | Repositorio | Entrypoint | App en Vivo |
 | :--- | :--- | :--- | :--- | :--- |
 | **Super Hub & Central de Mando** | Portafolio Ing. Comercial | [`github-context-extractor`](https://github.com/mauriciovargas1516-ux/github-context-extractor) | `app.py` | [Abrir App](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/) |
-| **Evaluación Integrada de Proyectos (FDIC26)** | Dra. Luz María Ferrada B. | [`PROYECTOS-2026`](https://github.com/mauriciovargas1516-ux/PROYECTOS-2026) | `consola_web.py` | [Abrir App](https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/) |
-| **Desarrollo y Gestión Territorial** | Prof. Claudio Mancilla | [`DESARROLLO-Y-GESTION-TERRITORIAL-2026`](https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026) | `app.py` | [Abrir App](https://desarrollo-y-gestion-territorial-2026-ec6keylhsgra88s77bkl6f.streamlit.app/) |
-| **Finanzas Avanzadas** | Prof.ª Camila Bustos Rosas | [`FINANZAS-AVANZADAS-2026`](https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026) | `app.py` | [Abrir App](https://finanzas-avanzadas-2026-nxvqzsfrrtgu9e92javcli.streamlit.app/) |
-| **Gestión Tributaria para la Toma de Decisiones** | Prof. Richard Villanueva Soto | [`GESTION-TRIBUTARIA-2026`](https://github.com/mauriciovargas1516-ux/GESTION-TRIBUTARIA-2026) | `app.py` | [Abrir App](https://gestion-tributaria-2026-avecwdhabftj7rjnx5knmb.streamlit.app/) |
+| **Evaluación Integrada de Proyectos (FDIC26)** | Dra. Luz María Ferrada B. | [`PROYECTOS-2026`](https://github.com/mauriciovargas1516-ux/PROYECTOS-2026) | `consola_web.py` | [Abrir App](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/) |
+| **Desarrollo y Gestión Territorial** | Prof. Claudio Mancilla | [`DESARROLLO-Y-GESTION-TERRITORIAL-2026`](https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026) | `app.py` | [Abrir App](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/) |
+| **Finanzas Avanzadas** | Prof.ª Camila Bustos Rosas | [`FINANZAS-AVANZADAS-2026`](https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026) | `app.py` | [Abrir App](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/) |
+| **Gestión Tributaria para la Toma de Decisiones** | Prof. Richard Villanueva Soto | [`GESTION-TRIBUTARIA-2026`](https://github.com/mauriciovargas1516-ux/GESTION-TRIBUTARIA-2026) | `app.py` | [Abrir App](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/) |
 | **Sincronizador ULagos Virtual** | Automatización Moodle | [`moodle-hybrid-scraper`](https://github.com/mauriciovargas1516-ux/moodle-hybrid-scraper) | `scraper_moodle.py` | — |
 
 ### Proyectos Comerciales, FinOps e Ingeniería
