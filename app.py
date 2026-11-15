@@ -532,7 +532,7 @@ MAPA_REPOS_A_RAMOS = {
         "sigla_archivo": "EVALUACION_INTEGRADA_PROYECTOS_FDIC26",
         "corto": "PROYECTOS",
         "docente": "Dra. Luz María Ferrada B.",
-        "app_url": "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/",
+        "app_url": "https://proyectos-2026-boqbuffwgsafjmtq7nezgh.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/PROYECTOS-2026",
         "descripcion": "Formulación, evaluación financiera privada, evaluación social SNI/MIDESO 2026 y valoración ambiental RA1/RA2.",
         "topics": ["python", "streamlit", "evaluacion-de-proyectos", "sni-chile", "ulagos", "ingenieria-comercial"],
@@ -582,7 +582,7 @@ MAPA_REPOS_A_RAMOS = {
         "sigla_archivo": "SINCRONIZADOR_MOODLE_ULAGOS",
         "corto": "MOODLE",
         "docente": "Automatización Web Híbrida (Selenium + Requests)",
-        "app_url": "https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/",
+        "app_url": "https://moodle-hybrid-scraper-dcwiyhxggcp9uzk8l5tbd9.streamlit.app/",
         "repo_url": "https://github.com/mauriciovargas1516-ux/moodle-hybrid-scraper",
         "descripcion": "Rastreador web híbrido integrado para extraer y empaquetar todos los PDFs, Excels y apuntes de ULagos Virtual.",
         "topics": ["python", "selenium", "moodle-scraper", "streamlit", "ulagos"],
@@ -602,7 +602,7 @@ MAPA_REPOS_A_RAMOS = {
 CUADRILLAS_LITERATURA_POR_RAMO = {
     "Evaluación Integrada de Proyectos (FDIC26)": {
         "docente": "Dra. Luz María Ferrada B.",
-        "app_url": "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/",
+        "app_url": "https://proyectos-2026-boqbuffwgsafjmtq7nezgh.streamlit.app/",
         "tarjetas": [
             {
                 "id": "proy_sni_2026",
@@ -632,7 +632,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "links": [
                     ("Portal Precios Sociales SNI 2026", "https://sni.gob.cl/formulacion-de-iniciativas/precios-sociales/"),
                     ("Estudio Oficial PSMO (CIUO-08 PDF)", "https://sni.gob.cl/storage/docs/Informe_Final_PSMO.pdf"),
-                    ("Abrir Simulador Proyectos 2026", "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/"),
+                    ("Abrir Simulador Proyectos 2026", "https://proyectos-2026-boqbuffwgsafjmtq7nezgh.streamlit.app/"),
                 ],
             },
             {
@@ -662,7 +662,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "links": [
                     ("Libro Fontaine (2008) PDF — Cap. V (Pág. 207)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=207"),
                     ("Libro Fontaine (2008) PDF — Cap. VII (Pág. 381)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=381"),
-                    ("Ver Gráfico Interactivo en App Proyectos", "https://proyectos-2026-bcqbhffwgsxfjmtq7nezgh.streamlit.app/"),
+                    ("Ver Gráfico Interactivo en App Proyectos", "https://proyectos-2026-boqbuffwgsafjmtq7nezgh.streamlit.app/"),
                 ],
             },
             {
