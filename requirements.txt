@@ -1,6 +1,9 @@
 streamlit
-pypdf
-openpyxl
+requests
+beautifulsoup4
+selenium
+urllib3
 pandas
+openpyxl
+pypdf
 python-docx
-python-calamine
