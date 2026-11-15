@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 """
-app.py — SUPER HUB ACADÉMICO ULAGOS 2026 CON VISOR GRÁFICO PDF.JS Y GOOGLE DRIVE API
-Repositorio: https://github.com/mauriciovargas1516-ux/github-context-extractor
+app.py — SUPER HUB ACADÉMICO Y SUPER CENTRAL DE MANDO ULAGOS 2026
+Repositorio Maestro: https://github.com/mauriciovargas1516-ux/github-context-extractor
 - Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com).
 - Extracción quirúrgica HTTP Byte-Range dentro de archivos .ZIP gigantes en Google Drive
   (extrae cualquier PDF o Excel dentro de Respaldo_ULagos_2026.zip en < 1 segundo).
-- VISOR GRÁFICO HTML5 CANVAS (Mozilla PDF.js + Blob URL): evita al 100% el bloqueo gris
-  de Google Chrome en iframes anidados, renderizando la página exacta con controles de Zoom.
+- VISOR GRÁFICO HTML5 CANVAS (Mozilla PDF.js + Blob URL) anti-bloqueo de Google Chrome.
+- MODO DOBLE (HUB CENTRAL + PUENTE REMOTO EN VIVO):
+  1) Cuando se abre directamente (__name__ != 'puente_remoto_ulagos'), muestra las 5 pestañas
+     del Super Hub incluyendo la Pestaña 5: SUPER CENTRAL DE MANDO para auditar, inyectar o
+     desacoplar el puente en todos los demás repositorios sin destruir su código original.
+  2) Cuando es invocado por una app hija (__name__ == 'puente_remoto_ulagos'), expone la función
+     ejecutar_nodo_receptor_puente(nombre_repo) que renderiza las Cuadrillas Metodológicas y el
+     Visor Quirúrgico de Google Drive directamente dentro de la app de la asignatura.
 """
 
 import io
@@ -30,144 +36,147 @@ import pandas as pd
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+ES_MODO_PUENTE_REMOTO = (__name__ == "puente_remoto_ulagos")
+
 
 # ==============================================================================
-# 1. CONFIGURACIÓN DE PÁGINA Y ESTILO INSTITUCIONAL CLARO (SIN EMOJIS)
+# 1. CONFIGURACIÓN DE PÁGINA (SOLO SE EJECUTA SI NO ESTÁ EN MODO PUENTE REMOTO)
 # ==============================================================================
 
-st.set_page_config(
-    page_title="Super Hub Académico ULagos 2026 — GitHub + Moodle + Google Drive API",
-    layout="wide",
-)
+if not ES_MODO_PUENTE_REMOTO:
+    st.set_page_config(
+        page_title="Super Hub Académico y Central de Mando ULagos 2026",
+        layout="wide",
+    )
 
-st.markdown(
-    """
-    <style>
-    .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #F8FAFC !important;
-        color: #0F172A !important;
-    }
-    .block-container {
-        padding-top: 1.3rem !important;
-        padding-bottom: 2.5rem !important;
-        max-width: 1280px !important;
-    }
-    .top-banner {
-        background-color: #0F172A;
-        color: #FFFFFF;
-        padding: 18px 24px;
-        border-radius: 8px;
-        border-left: 6px solid #2563EB;
-        margin-bottom: 16px;
-    }
-    .top-banner h1 {
-        color: #FFFFFF !important;
-        font-size: 21px !important;
-        font-weight: 700 !important;
-        margin: 0 0 6px 0 !important;
-    }
-    .top-banner p {
-        color: #CBD5E1 !important;
-        font-size: 13.5px !important;
-        margin: 0 !important;
-    }
-    .sec-header {
-        background-color: #DBEAFE;
-        color: #1E3A8A;
-        padding: 9px 14px;
-        font-weight: 700;
-        font-size: 14px;
-        border-radius: 5px;
-        margin-top: 14px;
-        margin-bottom: 10px;
-        border-left: 4px solid #1D4ED8;
-    }
-    .tip-card {
-        background-color: #FFFFFF;
-        border: 1px solid #CBD5E1;
-        border-top: 4px solid #1E3A8A;
-        border-radius: 6px;
-        padding: 14px;
-        margin-bottom: 10px;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-    }
-    .tip-title {
-        font-weight: 700;
-        color: #0F172A;
-        font-size: 14px;
-        margin-bottom: 6px;
-    }
-    .tip-body {
-        color: #334155;
-        font-size: 12.8px;
-        line-height: 1.45;
-        margin-bottom: 10px;
-    }
-    .tip-source {
-        background-color: #F1F5F9;
-        border-left: 3px solid #0284C7;
-        padding: 7px 10px;
-        font-size: 11.8px;
-        color: #0F172A;
-        font-weight: 600;
-        margin-bottom: 8px;
-    }
-    .link-bar {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 6px;
-    }
-    .lit-link {
-        display: inline-block;
-        background-color: #EFF6FF;
-        color: #1D4ED8 !important;
-        border: 1px solid #BFDBFE;
-        border-radius: 4px;
-        padding: 4px 9px;
-        font-size: 11.5px;
-        font-weight: 700;
-        text-decoration: none !important;
-    }
-    .lit-link:hover {
-        background-color: #DBEAFE;
-        border-color: #1D4ED8;
-        color: #1E3A8A !important;
-    }
-    .lit-link-internal {
-        display: inline-block;
-        background-color: #F0FDF4;
-        color: #15803D !important;
-        border: 1px solid #BBF7D0;
-        border-radius: 4px;
-        padding: 4px 9px;
-        font-size: 11.5px;
-        font-weight: 700;
-        text-decoration: none !important;
-    }
-    .lit-link-internal:hover {
-        background-color: #DCFCE7;
-        border-color: #15803D;
-        color: #14532D !important;
-    }
-    .cita-box {
-        background-color: #FEFCE8;
-        border: 1px solid #FDE047;
-        border-left: 5px solid #CA8A04;
-        border-radius: 6px;
-        padding: 14px 18px;
-        margin-bottom: 16px;
-    }
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="select"] > div {
-        background-color: #FFFFFF !important;
-        color: #0F172A !important;
-        border: 1px solid #94A3B8 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+    st.markdown(
+        """
+        <style>
+        .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+            background-color: #F8FAFC !important;
+            color: #0F172A !important;
+        }
+        .block-container {
+            padding-top: 1.3rem !important;
+            padding-bottom: 2.5rem !important;
+            max-width: 1280px !important;
+        }
+        .top-banner {
+            background-color: #0F172A;
+            color: #FFFFFF;
+            padding: 18px 24px;
+            border-radius: 8px;
+            border-left: 6px solid #2563EB;
+            margin-bottom: 16px;
+        }
+        .top-banner h1 {
+            color: #FFFFFF !important;
+            font-size: 21px !important;
+            font-weight: 700 !important;
+            margin: 0 0 6px 0 !important;
+        }
+        .top-banner p {
+            color: #CBD5E1 !important;
+            font-size: 13.5px !important;
+            margin: 0 !important;
+        }
+        .sec-header {
+            background-color: #DBEAFE;
+            color: #1E3A8A;
+            padding: 9px 14px;
+            font-weight: 700;
+            font-size: 14px;
+            border-radius: 5px;
+            margin-top: 14px;
+            margin-bottom: 10px;
+            border-left: 4px solid #1D4ED8;
+        }
+        .tip-card {
+            background-color: #FFFFFF;
+            border: 1px solid #CBD5E1;
+            border-top: 4px solid #1E3A8A;
+            border-radius: 6px;
+            padding: 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        }
+        .tip-title {
+            font-weight: 700;
+            color: #0F172A;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+        .tip-body {
+            color: #334155;
+            font-size: 12.8px;
+            line-height: 1.45;
+            margin-bottom: 10px;
+        }
+        .tip-source {
+            background-color: #F1F5F9;
+            border-left: 3px solid #0284C7;
+            padding: 7px 10px;
+            font-size: 11.8px;
+            color: #0F172A;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .link-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .lit-link {
+            display: inline-block;
+            background-color: #EFF6FF;
+            color: #1D4ED8 !important;
+            border: 1px solid #BFDBFE;
+            border-radius: 4px;
+            padding: 4px 9px;
+            font-size: 11.5px;
+            font-weight: 700;
+            text-decoration: none !important;
+        }
+        .lit-link:hover {
+            background-color: #DBEAFE;
+            border-color: #1D4ED8;
+            color: #1E3A8A !important;
+        }
+        .lit-link-internal {
+            display: inline-block;
+            background-color: #F0FDF4;
+            color: #15803D !important;
+            border: 1px solid #BBF7D0;
+            border-radius: 4px;
+            padding: 4px 9px;
+            font-size: 11.5px;
+            font-weight: 700;
+            text-decoration: none !important;
+        }
+        .lit-link-internal:hover {
+            background-color: #DCFCE7;
+            border-color: #15803D;
+            color: #14532D !important;
+        }
+        .cita-box {
+            background-color: #FEFCE8;
+            border: 1px solid #FDE047;
+            border-left: 5px solid #CA8A04;
+            border-radius: 6px;
+            padding: 14px 18px;
+            margin-bottom: 16px;
+        }
+        div[data-baseweb="input"] > div,
+        div[data-baseweb="select"] > div {
+            background-color: #FFFFFF !important;
+            color: #0F172A !important;
+            border: 1px solid #94A3B8 !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ==============================================================================
@@ -334,11 +343,6 @@ def descargar_bytes_archivo_drive_por_id(file_id):
 # ==============================================================================
 
 def renderizar_visor_pdf_canvas_js(b64_pdf, nombre_doc, pag_ini, pag_fin):
-    """
-    Dibuja las páginas recortadas del PDF en un lienzo gráfico HTML5 <canvas> usando
-    Mozilla PDF.js + botón de apertura en pestaña nueva vía Blob URL.
-    Nunca es bloqueado por el filtro de iframes de Google Chrome.
-    """
     html_code = f"""
     <!DOCTYPE html>
     <html>
@@ -991,7 +995,6 @@ def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
     try:
         archivos_drive = listar_archivos_google_drive_service_account()
 
-        # 1. Revisar si hay un PDF suelto compartido en Drive
         for arch in archivos_drive:
             nom_d = arch.get("name", "")
             if nom_d.lower().endswith(".pdf"):
@@ -1000,7 +1003,6 @@ def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
                     pdf_bytes = descargar_bytes_archivo_drive_por_id(arch["id"])
                     return pdf_bytes, f"Google Drive PDF directo ({nom_d})"
 
-        # 2. Revisar quirúrgicamente dentro de los .ZIP compartidos en Drive (ej. Respaldo_ULagos_2026.zip)
         for arch in archivos_drive:
             nom_d = arch.get("name", "")
             tam_d = int(arch.get("size", 0))
@@ -1054,7 +1056,7 @@ def _recortar_paginas_pdf_en_base64(pdf_bytes, pag_inicio, pag_fin=None):
         return None, 0, 1, 1
 
 
-def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
+def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1, prefijo_key="hub"):
     c_pag1, c_pag2, c_pag3 = st.columns([1.1, 1.1, 2.8])
     with c_pag1:
         p_ini_sel = st.number_input(
@@ -1063,7 +1065,7 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
             max_value=1500,
             value=int(pagina_objetivo),
             step=1,
-            key=f"v_ini_{nombre_pdf}",
+            key=f"{prefijo_key}_v_ini_{nombre_pdf}",
         )
     with c_pag2:
         p_fin_sel = st.number_input(
@@ -1072,7 +1074,7 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
             max_value=1500,
             value=int(pagina_objetivo),
             step=1,
-            key=f"v_fin_{nombre_pdf}",
+            key=f"{prefijo_key}_v_fin_{nombre_pdf}",
         )
     with c_pag3:
         st.caption(
@@ -1096,6 +1098,7 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
                 file_name=nombre_pdf,
                 mime="application/pdf",
                 use_container_width=True,
+                key=f"{prefijo_key}_dl_{nombre_pdf}",
             )
             return
 
@@ -1105,7 +1108,226 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
 
 
 # ==============================================================================
-# 6. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
+# 6. NODO RECEPTOR DEL PUENTE (SE EJECUTA DENTRO DE TUS OTRAS APPS STREAMLIT)
+# ==============================================================================
+
+def ejecutar_nodo_receptor_puente(nombre_repo_hijo="PROYECTOS-2026"):
+    """
+    Esta función se ejecuta automáticamente dentro de PROYECTOS-2026, TERRITORIAL-2026,
+    FINANZAS-AVANZADAS-2026 o GESTION-TRIBUTARIA-2026 cuando llaman al Puente en Vivo.
+    No altera el layout ni el código existente de la app hija: agrega abajo un módulo
+    institucional con las Cuadrillas Metodológicas de esa asignatura y el Visor Quirúrgico
+    de Google Drive (PDF.js en página exacta).
+    """
+    meta_hijo = MAPA_REPOS_A_RAMOS.get(nombre_repo_hijo, MAPA_REPOS_A_RAMOS["PROYECTOS-2026"])
+    ramo_defecto = meta_hijo["ramo"]
+    if ramo_defecto not in CUADRILLAS_LITERATURA_POR_RAMO:
+        ramo_defecto = "Evaluación Integrada de Proyectos (FDIC26)"
+
+    st.divider()
+    st.markdown(
+        f"""
+        <div style="background-color:#0F172A;color:#FFFFFF;padding:14px 20px;border-radius:8px;
+                    border-left:6px solid #2563EB;margin-top:12px;margin-bottom:12px;">
+            <div style="font-size:16px;font-weight:700;color:#FFFFFF;">
+                PUENTE CENTRAL DE LITERATURA OFICIAL Y VISOR GOOGLE DRIVE (5 TB) — {ramo_defecto.upper()}
+            </div>
+            <div style="font-size:12.5px;color:#CBD5E1;margin-top:3px;">
+                Conectado en tiempo real con <code>github-context-extractor</code> y Google Cloud (<code>{SERVICE_ACCOUNT_EMAIL}</code>).
+                Pulsa cualquier referencia para abrir la lámina o página exacta del PDF original sin salir de esta aplicación.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.expander(f"Abrir Cuadrillas Metodológicas, Fórmulas y Visor PDF en Página Exacta — {ramo_defecto}", expanded=True):
+        info_r = CUADRILLAS_LITERATURA_POR_RAMO[ramo_defecto]
+        tarjetas_r = info_r["tarjetas"]
+
+        for i in range(0, len(tarjetas_r), 2):
+            cols = st.columns(2)
+            for j in range(2):
+                if i + j < len(tarjetas_r):
+                    t = tarjetas_r[i + j]
+                    with cols[j]:
+                        enlaces_ext = " ".join(
+                            f"<a href='{u}' target='_blank' style='display:inline-block;background:#EFF6FF;color:#1D4ED8;"
+                            f"border:1px solid #BFDBFE;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:700;"
+                            f"text-decoration:none;margin-right:4px;margin-top:4px;'>{lbl} &#8599;</a>"
+                            for lbl, u in t.get("links", [])
+                        )
+                        st.markdown(
+                            f"""
+                            <div style="background:#FFFFFF;border:1px solid #CBD5E1;border-top:4px solid #1E3A8A;
+                                        border-radius:6px;padding:12px;margin-bottom:8px;">
+                                <div style="font-weight:700;color:#0F172A;font-size:13.5px;margin-bottom:5px;">{t['titulo']}</div>
+                                <div style="color:#334155;font-size:12.5px;line-height:1.45;margin-bottom:8px;">{t['tip']}</div>
+                                <div style="background:#F1F5F9;border-left:3px solid #0284C7;padding:6px 9px;
+                                            font-size:11.5px;color:#0F172A;font-weight:600;margin-bottom:6px;">
+                                    Ubicación en la Literatura: {t['fuente']}
+                                </div>
+                                <div>{enlaces_ext}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        if t.get("formula"):
+                            st.latex(t["formula"])
+
+        st.markdown("#### Visor Directo de Láminas y Páginas Citadas (Extracción Quirúrgica desde Google Drive):")
+        opciones_tarjetas = [
+            f"{t['titulo']} -> Abrir '{t['doc_pdf']}' en Página/Lámina {t['pag_pdf']}"
+            for t in tarjetas_r
+        ]
+        idx_t_sel = st.selectbox(
+            "Selecciona la referencia cuyo documento PDF original deseas visualizar aquí mismo:",
+            options=range(len(opciones_tarjetas)),
+            format_func=lambda k: opciones_tarjetas[k],
+            key=f"puente_sel_{nombre_repo_hijo}",
+        )
+        t_elegida = tarjetas_r[idx_t_sel]
+        mostrar_visor_documento_citado(
+            t_elegida["doc_pdf"],
+            pagina_objetivo=t_elegida["pag_pdf"],
+            prefijo_key=f"p_{nombre_repo_hijo}_{t_elegida['id']}",
+        )
+
+
+# ==============================================================================
+# 7. MOTOR DE LA SUPER CENTRAL DE MANDO (INYECCIÓN NO DESTRUCTIVA VÍA GITHUB API)
+# ==============================================================================
+
+MARCADOR_PUENTE_INI = "# === [INICIO PUENTE CENTRAL ULAGOS 2026] ==="
+MARCADOR_PUENTE_FIN = "# === [FIN PUENTE CENTRAL ULAGOS 2026] ==="
+
+
+def generar_snippet_conector_hijo(nombre_repo):
+    return (
+        f"\n\n{MARCADOR_PUENTE_INI}\n"
+        "try:\n"
+        "    import urllib.request as _ureq\n"
+        '    _url_puente = "https://raw.githubusercontent.com/mauriciovargas1516-ux/github-context-extractor/main/app.py"\n'
+        '    _req_p = _ureq.Request(_url_puente, headers={"User-Agent": "ULagos-Bridge/1.0"})\n'
+        "    with _ureq.urlopen(_req_p, timeout=12) as _resp_p:\n"
+        '        _cod_hub = _resp_p.read().decode("utf-8")\n'
+        '    _ns_hub = {"__name__": "puente_remoto_ulagos"}\n'
+        "    exec(_cod_hub, _ns_hub)\n"
+        '    if "ejecutar_nodo_receptor_puente" in _ns_hub:\n'
+        f'        _ns_hub["ejecutar_nodo_receptor_puente"]("{nombre_repo}")\n'
+        "except Exception as _e_puente:\n"
+        "    pass\n"
+        f"{MARCADOR_PUENTE_FIN}\n"
+    )
+
+
+def _leer_archivo_github_api(usuario, repo, ruta, token=""):
+    """Lee el contenido y el SHA de un archivo en un repositorio de GitHub."""
+    url = f"https://api.github.com/repos/{usuario}/{repo}/contents/{ruta}"
+    headers = {"Accept": "application/vnd.github.v3+json", "User-Agent": "ULagos-Command-Center"}
+    if token.strip():
+        headers["Authorization"] = f"token {token.strip()}"
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    contenido = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
+    return contenido, data.get("sha", "")
+
+
+def _escribir_archivo_github_api(usuario, repo, ruta, nuevo_texto, sha_actual, token, mensaje_commit):
+    """Actualiza un archivo en GitHub preservando su historial de commits."""
+    url = f"https://api.github.com/repos/{usuario}/{repo}/contents/{ruta}"
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "ULagos-Command-Center",
+        "Authorization": f"token {token.strip()}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "message": mensaje_commit,
+        "content": base64.b64encode(nuevo_texto.encode("utf-8")).decode("utf-8"),
+        "sha": sha_actual,
+    }
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="PUT")
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def inyectar_puente_no_destructivo_en_repo(usuario, repo_destino, token):
+    """
+    1) Verifica y agrega pypdf, google-auth y requests al requirements.txt del repo destino.
+    2) Toma el app.py original del repo destino sin borrar ni una sola línea de su código
+       y adjunta al final las 14 líneas del conector al Puente Central.
+    """
+    # Paso 1: Asegurar dependencias en requirements.txt
+    try:
+        req_txt, req_sha = _leer_archivo_github_api(usuario, repo_destino, "requirements.txt", token=token)
+        lineas_req = [l.strip() for l in req_txt.splitlines() if l.strip()]
+        existentes_low = {re.split(r"[=<>~]", l)[0].strip().lower() for l in lineas_req}
+        agregados = []
+        for pkg in ["requests", "pypdf", "google-auth", "openpyxl"]:
+            if pkg not in existentes_low:
+                lineas_req.append(pkg)
+                agregados.append(pkg)
+        if agregados:
+            nuevo_req_txt = "\n".join(lineas_req) + "\n"
+            _escribir_archivo_github_api(
+                usuario,
+                repo_destino,
+                "requirements.txt",
+                nuevo_req_txt,
+                req_sha,
+                token,
+                f"Central de Mando ULagos: agregar {', '.join(agregados)} para Visor Google Drive",
+            )
+    except Exception:
+        pass
+
+    # Paso 2: Adjuntar bloque al final de app.py sin destruir el código existente
+    app_txt, app_sha = _leer_archivo_github_api(usuario, repo_destino, "app.py", token=token)
+    snippet = generar_snippet_conector_hijo(repo_destino)
+
+    if MARCADOR_PUENTE_INI in app_txt and MARCADOR_PUENTE_FIN in app_txt:
+        ini = app_txt.find(MARCADOR_PUENTE_INI)
+        fin = app_txt.find(MARCADOR_PUENTE_FIN) + len(MARCADOR_PUENTE_FIN)
+        nuevo_app_txt = app_txt[:ini].rstrip() + snippet
+    else:
+        nuevo_app_txt = app_txt.rstrip() + snippet
+
+    _escribir_archivo_github_api(
+        usuario,
+        repo_destino,
+        "app.py",
+        nuevo_app_txt,
+        app_sha,
+        token,
+        f"Central de Mando ULagos: conectar Puente en Vivo en {repo_destino}",
+    )
+    return True
+
+
+def desacoplar_puente_de_repo(usuario, repo_destino, token):
+    """Elimina limpiamente las 14 líneas del puente dejando el app.py exactamente como estaba."""
+    app_txt, app_sha = _leer_archivo_github_api(usuario, repo_destino, "app.py", token=token)
+    if MARCADOR_PUENTE_INI not in app_txt:
+        return False
+    ini = app_txt.find(MARCADOR_PUENTE_INI)
+    fin = app_txt.find(MARCADOR_PUENTE_FIN) + len(MARCADOR_PUENTE_FIN)
+    limpio = (app_txt[:ini].rstrip() + "\n" + app_txt[fin:].lstrip()).rstrip() + "\n"
+    _escribir_archivo_github_api(
+        usuario,
+        repo_destino,
+        "app.py",
+        limpio,
+        app_sha,
+        token,
+        f"Central de Mando ULagos: desacoplar puente en {repo_destino}",
+    )
+    return True
+
+
+# ==============================================================================
+# 8. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
 # ==============================================================================
 
 EXTENSIONES_TEXTO_PERMITIDAS = (
@@ -1378,7 +1600,7 @@ def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatur
 
 
 # ==============================================================================
-# 7. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
+# 9. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
 # ==============================================================================
 
 def renderizar_cuadrillas_ramo(nombre_ramo):
@@ -1424,413 +1646,503 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
 
 
 # ==============================================================================
-# 8. INTERFAZ PRINCIPAL Y VISOR DE DOCUMENTOS AL PULSAR UNA REFERENCIA (?cita=...)
+# 10. INTERFAZ PRINCIPAL DEL HUB (SOLO SE EJECUTA SI NO ES INVOCADO COMO PUENTE)
 # ==============================================================================
 
-st.markdown(
-    """
-    <div class="top-banner">
-        <h1>SUPER HUB ACADÉMICO ULAGOS 2026: GITHUB + MOODLE SCRAPER + GOOGLE DRIVE API (5 TB)</h1>
-        <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) con extracción quirúrgica HTTP Byte-Range y Visor Gráfico PDF.js.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+if not ES_MODO_PUENTE_REMOTO:
+    st.markdown(
+        """
+        <div class="top-banner">
+            <h1>SUPER HUB ACADÉMICO Y CENTRAL DE MANDO ULAGOS 2026: GITHUB + GOOGLE DRIVE API (5 TB)</h1>
+            <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) con extracción quirúrgica HTTP Byte-Range, Visor PDF.js y Puente Maestro hacia todos tus repositorios.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-cita_activa = st.query_params.get("cita", None)
-if cita_activa:
-    ramo_c, doc_c, tarjeta_c = buscar_tarjeta_por_id(cita_activa)
-    if tarjeta_c:
+    cita_activa = st.query_params.get("cita", None)
+    if cita_activa:
+        ramo_c, doc_c, tarjeta_c = buscar_tarjeta_por_id(cita_activa)
+        if tarjeta_c:
+            st.markdown(
+                f"""
+                <div class="cita-box">
+                    <div style="font-weight:700;font-size:15px;color:#854D0E;margin-bottom:4px;">
+                        VISOR DE DOCUMENTO ORIGINAL VÍA GOOGLE DRIVE API — {ramo_c.upper()} ({doc_c})
+                    </div>
+                    <div style="font-weight:700;font-size:14px;color:#0F172A;margin-bottom:6px;">
+                        {tarjeta_c['titulo']}
+                    </div>
+                    <div style="font-size:12.5px;color:#334155;margin-bottom:6px;">
+                        <b>Referencia documental:</b> {tarjeta_c['fuente']}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.latex(tarjeta_c["formula"])
+
+            v_tab1, v_tab2 = st.tabs([
+                f"1. Visor PDF Original desde Google Drive ({tarjeta_c.get('doc_pdf', 'Documento')} — Pág. {tarjeta_c.get('pag_pdf', 1)})",
+                "2. Transcripción Literal de la Página en la Bóveda",
+            ])
+            with v_tab1:
+                mostrar_visor_documento_citado(
+                    tarjeta_c.get("doc_pdf", "Clase2.pdf"),
+                    pagina_objetivo=tarjeta_c.get("pag_pdf", 1),
+                )
+            with v_tab2:
+                st.code(tarjeta_c["extracto_literal"], language="text")
+                frag_local = buscar_pagina_en_destilado_local(tarjeta_c.get("marcador_moodle", ""))
+                if frag_local:
+                    st.caption("Contexto extendido extraído en vivo desde el archivo maestro del repositorio:")
+                    st.code(frag_local, language="text")
+
+            if st.button("Cerrar Visor de Documento Citado"):
+                st.query_params.clear()
+                st.rerun()
+            st.divider()
+
+    with st.sidebar:
+        st.markdown("### Estado de Conexión Cloud")
+        st.caption("**Proyecto GCP:** `motor-sii-python`")
+        st.code(SERVICE_ACCOUNT_EMAIL, language="text")
+        if st.button("Refrescar Conexión Google Drive (5 TB)", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+
+        st.divider()
+        usuario_gh = st.text_input("Usuario GitHub:", value=GITHUB_USER_DEFAULT)
+        token_default = ""
+        try:
+            token_default = st.secrets.get("GITHUB_TOKEN", "")
+        except Exception:
+            token_default = ""
+        token_gh = st.text_input(
+            "Token GitHub (Para inyectar Puente en 1 clic):",
+            value=token_default,
+            type="password",
+        )
+        incluir_lit_en_txt = st.checkbox(
+            "Incluir Cuadrilla de Literatura e Hipervínculos en el .TXT",
+            value=True,
+        )
+
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "1. Extractor GitHub por Ramo",
+        "2. Cuadrillas y Visor PDF (Drive API)",
+        "3. Explorador Quirúrgico Google Drive (.ZIP)",
+        "4. Bóveda Destilada en 1 Clic",
+        "5. Super Central de Mando (Puente a Repos)",
+    ])
+
+    # --------------------------------------------------------------------------
+    # PESTAÑA 1: EXTRACTOR GITHUB POR RAMO (INMUNE A HTTP 403)
+    # --------------------------------------------------------------------------
+    with tab1:
         st.markdown(
-            f"""
-            <div class="cita-box">
-                <div style="font-weight:700;font-size:15px;color:#854D0E;margin-bottom:4px;">
-                    VISOR DE DOCUMENTO ORIGINAL VÍA GOOGLE DRIVE API — {ramo_c.upper()} ({doc_c})
-                </div>
-                <div style="font-weight:700;font-size:14px;color:#0F172A;margin-bottom:6px;">
-                    {tarjeta_c['titulo']}
-                </div>
-                <div style="font-size:12.5px;color:#334155;margin-bottom:6px;">
-                    <b>Referencia documental:</b> {tarjeta_c['fuente']}
-                </div>
-            </div>
-            """,
+            "<div class='sec-header'>1. SELECCIÓN DE RAMOS / REPOSITORIOS Y NOMENCLATURA PERSONALIZADA</div>",
             unsafe_allow_html=True,
         )
-        st.latex(tarjeta_c["formula"])
 
-        v_tab1, v_tab2 = st.tabs([
-            f"1. Visor PDF Original desde Google Drive ({tarjeta_c.get('doc_pdf', 'Documento')} — Pág. {tarjeta_c.get('pag_pdf', 1)})",
-            "2. Transcripción Literal de la Página en la Bóveda",
-        ])
-        with v_tab1:
-            mostrar_visor_documento_citado(
-                tarjeta_c.get("doc_pdf", "Clase2.pdf"),
-                pagina_objetivo=tarjeta_c.get("pag_pdf", 1),
-            )
-        with v_tab2:
-            st.code(tarjeta_c["extracto_literal"], language="text")
-            frag_local = buscar_pagina_en_destilado_local(tarjeta_c.get("marcador_moodle", ""))
-            if frag_local:
-                st.caption("Contexto extendido extraído en vivo desde el archivo maestro del repositorio:")
-                st.code(frag_local, language="text")
-
-        if st.button("Cerrar Visor de Documento Citado"):
-            st.query_params.clear()
-            st.rerun()
-        st.divider()
-
-with st.sidebar:
-    st.markdown("### Estado de Conexión Cloud")
-    st.caption("**Proyecto GCP:** `motor-sii-python`")
-    st.code(SERVICE_ACCOUNT_EMAIL, language="text")
-    if st.button("Refrescar Conexión Google Drive (5 TB)", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-
-    st.divider()
-    usuario_gh = st.text_input("Usuario GitHub:", value=GITHUB_USER_DEFAULT)
-    token_default = ""
-    try:
-        token_default = st.secrets.get("GITHUB_TOKEN", "")
-    except Exception:
-        token_default = ""
-    token_gh = st.text_input(
-        "Token GitHub (Opcional):",
-        value=token_default,
-        type="password",
-    )
-    incluir_lit_en_txt = st.checkbox(
-        "Incluir Cuadrilla de Literatura e Hipervínculos en el .TXT",
-        value=True,
-    )
-
-tab1, tab2, tab3, tab4 = st.tabs([
-    "1. Extractor GitHub por Ramo",
-    "2. Cuadrillas y Visor PDF (Drive API)",
-    "3. Explorador Quirúrgico Google Drive (.ZIP y PDFs)",
-    "4. Bóveda Destilada en 1 Clic",
-])
-
-# ------------------------------------------------------------------------------
-# PESTAÑA 1: EXTRACTOR GITHUB POR RAMO (INMUNE A HTTP 403)
-# ------------------------------------------------------------------------------
-with tab1:
-    st.markdown(
-        "<div class='sec-header'>1. SELECCIÓN DE RAMOS / REPOSITORIOS Y NOMENCLATURA PERSONALIZADA</div>",
-        unsafe_allow_html=True,
-    )
-
-    lista_repos, usando_fallback = listar_repositorios_usuario(usuario_gh, token=token_gh)
-    if usando_fallback:
-        st.caption(
-            "Modo Directo Codeload Activo: Catálogo cargado vía web directa (evitando el límite de 60 consultas/hora de api.github.com)."
-        )
-
-    if lista_repos:
-        mapa_objetos_repo = {r["name"]: r for r in lista_repos}
-        nombres_disponibles = list(mapa_objetos_repo.keys())
-
-        c_filtro, c_sel = st.columns([1.3, 2.7])
-        with c_filtro:
-            modo_seleccion = st.radio(
-                "Modo de empaquetado:",
-                options=[
-                    "Por Ramo / Asignatura Específica",
-                    "Selección Manual de Repositorios",
-                    "Portafolio Completo (Todos)",
-                ],
+        lista_repos, usando_fallback = listar_repositorios_usuario(usuario_gh, token=token_gh)
+        if usando_fallback:
+            st.caption(
+                "Modo Directo Codeload Activo: Catálogo cargado vía web directa (evitando el límite de 60 consultas/hora de api.github.com)."
             )
 
-        with c_sel:
-            if modo_seleccion == "Por Ramo / Asignatura Específica":
-                opciones_ramos = [
-                    f"{k} — {v['ramo']}"
-                    for k, v in MAPA_REPOS_A_RAMOS.items()
-                    if k in mapa_objetos_repo
-                ]
-                if not opciones_ramos:
-                    opciones_ramos = nombres_disponibles
-                elegido_ramo = st.selectbox("Selecciona la Asignatura / Repositorio a descargar:", options=opciones_ramos)
-                repo_clave = elegido_ramo.split(" — ")[0].strip()
-                repos_seleccionados = [repo_clave] if repo_clave in mapa_objetos_repo else [nombres_disponibles[0]]
-            elif modo_seleccion == "Selección Manual de Repositorios":
-                default_init = ["PROYECTOS-2026"] if "PROYECTOS-2026" in nombres_disponibles else nombres_disponibles[:1]
-                repos_seleccionados = st.multiselect(
-                    "Elige uno o más repositorios (el archivo adoptará sus nombres):",
-                    options=nombres_disponibles,
-                    default=default_init,
-                )
-            else:
-                repos_seleccionados = nombres_disponibles
-                st.info(f"Se empaquetarán los {len(repos_seleccionados)} repositorios públicos de {usuario_gh}.")
+        if lista_repos:
+            mapa_objetos_repo = {r["name"]: r for r in lista_repos}
+            nombres_disponibles = list(mapa_objetos_repo.keys())
 
-        nombre_sugerido, encabezado_sugerido = construir_nombre_y_encabezado_personalizado(
-            repos_seleccionados, usuario_gh
-        )
-
-        col_nom1, col_nom2 = st.columns([2.2, 1.8])
-        with col_nom1:
-            nombre_archivo_final = st.text_input(
-                "Nombre del archivo .TXT a descargar (generado automáticamente según tu selección):",
-                value=nombre_sugerido,
-            )
-        with col_nom2:
-            st.markdown("**Vista previa de asignaturas detectadas:**")
-            for r_sel in repos_seleccionados[:4]:
-                m_info = obtener_meta_repo(r_sel)
-                st.caption(f"• `{r_sel}` → **{m_info['ramo']}** ({m_info['docente']})")
-
-        if st.button("COMPILAR CONTEXTO PERSONALIZADO DE LOS RAMOS SELECCIONADOS", type="primary", use_container_width=True):
-            if not repos_seleccionados:
-                st.warning("Selecciona al menos un repositorio para compilar.")
-            else:
-                partes_txt = [encabezado_sugerido]
-                barra = st.progress(0, text="Iniciando descarga directa en memoria desde Codeload GitHub...")
-                for idx, r_nom in enumerate(repos_seleccionados):
-                    barra.progress(
-                        (idx) / len(repos_seleccionados),
-                        text=f"Empaquetando {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
-                    )
-                    r_obj = mapa_objetos_repo[r_nom]
-                    bloque_repo = extraer_repositorio_completo(
-                        usuario_gh,
-                        r_obj,
-                        token=token_gh,
-                        incluir_literatura=incluir_lit_en_txt,
-                    )
-                    partes_txt.append(bloque_repo)
-                barra.progress(1.0, text="Compilación finalizada correctamente.")
-                st.session_state["txt_compilado_contenido"] = "\n".join(partes_txt)
-                st.session_state["txt_compilado_nombre"] = nombre_archivo_final
-
-        if "txt_compilado_contenido" in st.session_state:
-            tam_kb = len(st.session_state["txt_compilado_contenido"].encode("utf-8")) / 1024.0
-            st.success(
-                f"Archivo listo: {st.session_state['txt_compilado_nombre']} ({tam_kb:,.1f} KB compilados)."
-            )
-            st.download_button(
-                label=f"DESCARGAR {st.session_state['txt_compilado_nombre']}",
-                data=st.session_state["txt_compilado_contenido"].encode("utf-8"),
-                file_name=st.session_state["txt_compilado_nombre"],
-                mime="text/plain",
-                use_container_width=True,
-            )
-
-# ------------------------------------------------------------------------------
-# PESTAÑA 2: CUADRILLAS CON APERTURA QUIRÚRGICA DE PDF DESDE GOOGLE DRIVE API
-# ------------------------------------------------------------------------------
-with tab2:
-    st.markdown(
-        "<div class='sec-header'>2. CUADRILLAS METODOLÓGICAS CON APERTURA DEL PDF ORIGINAL EN LA PÁGINA EXACTA</div>",
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Haz clic en el botón verde de cualquier tarjeta: el motor extraerá vía HTTP Range únicamente los bytes "
-        "de ese PDF desde adentro de tu 'Respaldo_ULagos_2026.zip' en Google Drive y dibujará la lámina exacta con PDF.js."
-    )
-    ramos_disponibles_lit = ["Mostrar Todos los Ramos"] + list(CUADRILLAS_LITERATURA_POR_RAMO.keys())
-    filtro_ramo_lit = st.selectbox("Filtrar cuadrillas por asignatura:", options=ramos_disponibles_lit)
-
-    if filtro_ramo_lit == "Mostrar Todos los Ramos":
-        for nombre_r in CUADRILLAS_LITERATURA_POR_RAMO:
-            renderizar_cuadrillas_ramo(nombre_r)
-    else:
-        renderizar_cuadrillas_ramo(filtro_ramo_lit)
-
-# ------------------------------------------------------------------------------
-# PESTAÑA 3: EXPLORADOR QUIRÚRGICO DE GOOGLE DRIVE (ABRE EL INTERIOR DE .ZIP SIN DESCARGAR 444 MB)
-# ------------------------------------------------------------------------------
-with tab3:
-    st.markdown(
-        "<div class='sec-header'>3. EXPLORADOR QUIRÚRGICO DE GOOGLE DRIVE (INSPECCIÓN INTERNA DE .ZIP VÍA HTTP RANGE)</div>",
-        unsafe_allow_html=True,
-    )
-
-    try:
-        archivos_drv = listar_archivos_google_drive_service_account()
-        st.success(
-            f"Autenticación OAuth2 exitosa con `drive.googleapis.com` (Proyecto: `motor-sii-python`). "
-            f"Elementos raíz compartidos detectados: **{len(archivos_drv)}**."
-        )
-
-        if archivos_drv:
-            df_drv = pd.DataFrame([
-                {
-                    "Nombre en Google Drive": a.get("name", ""),
-                    "Tipo MIME": a.get("mimeType", ""),
-                    "Tamaño (KB)": round(int(a.get("size", 0)) / 1024, 1) if a.get("size") else 0.0,
-                    "ID de Google Drive": a.get("id", ""),
-                    "Abrir en Drive": a.get("webViewLink", ""),
-                }
-                for a in archivos_drv
-            ])
-            st.dataframe(
-                df_drv,
-                column_config={"Abrir en Drive": st.column_config.LinkColumn("Enlace Drive")},
-                use_container_width=True,
-                hide_index=True,
-            )
-
-            zips_en_drive = [
-                a for a in archivos_drv
-                if a.get("name", "").lower().endswith(".zip") and int(a.get("size", 0)) > 0
-            ]
-
-            for z_arch in zips_en_drive:
-                z_id = z_arch["id"]
-                z_nom = z_arch["name"]
-                z_size = int(z_arch["size"])
-
-                st.markdown(
-                    f"<div class='sec-header'>CONTENIDO INTERNO DE {z_nom} ({z_size / (1024*1024):,.1f} MB) — LEÍDO VÍA HTTP RANGE EN 0,2 SEGUNDOS</div>",
-                    unsafe_allow_html=True,
+            c_filtro, c_sel = st.columns([1.3, 2.7])
+            with c_filtro:
+                modo_seleccion = st.radio(
+                    "Modo de empaquetado:",
+                    options=[
+                        "Por Ramo / Asignatura Específica",
+                        "Selección Manual de Repositorios",
+                        "Portafolio Completo (Todos)",
+                    ],
                 )
 
-                entradas_internas = listar_indice_interno_zip_en_drive(z_id, z_size)
-                if entradas_internas:
-                    carpetas_unicas = ["Todas las Asignaturas"] + sorted(
-                        list({e["asignatura_carpeta"] for e in entradas_internas})
+            with c_sel:
+                if modo_seleccion == "Por Ramo / Asignatura Específica":
+                    opciones_ramos = [
+                        f"{k} — {v['ramo']}"
+                        for k, v in MAPA_REPOS_A_RAMOS.items()
+                        if k in mapa_objetos_repo
+                    ]
+                    if not opciones_ramos:
+                        opciones_ramos = nombres_disponibles
+                    elegido_ramo = st.selectbox("Selecciona la Asignatura / Repositorio a descargar:", options=opciones_ramos)
+                    repo_clave = elegido_ramo.split(" — ")[0].strip()
+                    repos_seleccionados = [repo_clave] if repo_clave in mapa_objetos_repo else [nombres_disponibles[0]]
+                elif modo_seleccion == "Selección Manual de Repositorios":
+                    default_init = ["PROYECTOS-2026"] if "PROYECTOS-2026" in nombres_disponibles else nombres_disponibles[:1]
+                    repos_seleccionados = st.multiselect(
+                        "Elige uno o más repositorios (el archivo adoptará sus nombres):",
+                        options=nombres_disponibles,
+                        default=default_init,
                     )
-                    col_f1, col_f2 = st.columns([1.4, 2.6])
-                    with col_f1:
-                        filtro_carpeta = st.selectbox(
-                            "Filtrar por Carpeta / Ramo dentro del .ZIP:",
-                            options=carpetas_unicas,
-                            key=f"f_carp_{z_id}",
+                else:
+                    repos_seleccionados = nombres_disponibles
+                    st.info(f"Se empaquetarán los {len(repos_seleccionados)} repositorios públicos de {usuario_gh}.")
+
+            nombre_sugerido, encabezado_sugerido = construir_nombre_y_encabezado_personalizado(
+                repos_seleccionados, usuario_gh
+            )
+
+            col_nom1, col_nom2 = st.columns([2.2, 1.8])
+            with col_nom1:
+                nombre_archivo_final = st.text_input(
+                    "Nombre del archivo .TXT a descargar (generado automáticamente según tu selección):",
+                    value=nombre_sugerido,
+                )
+            with col_nom2:
+                st.markdown("**Vista previa de asignaturas detectadas:**")
+                for r_sel in repos_seleccionados[:4]:
+                    m_info = obtener_meta_repo(r_sel)
+                    st.caption(f"• `{r_sel}` → **{m_info['ramo']}** ({m_info['docente']})")
+
+            if st.button("COMPILAR CONTEXTO PERSONALIZADO DE LOS RAMOS SELECCIONADOS", type="primary", use_container_width=True):
+                if not repos_seleccionados:
+                    st.warning("Selecciona al menos un repositorio para compilar.")
+                else:
+                    partes_txt = [encabezado_sugerido]
+                    barra = st.progress(0, text="Iniciando descarga directa en memoria desde Codeload GitHub...")
+                    for idx, r_nom in enumerate(repos_seleccionados):
+                        barra.progress(
+                            (idx) / len(repos_seleccionados),
+                            text=f"Empaquetando {r_nom} ({obtener_meta_repo(r_nom)['ramo']})...",
                         )
-                    entradas_filtradas = [
-                        e for e in entradas_internas
-                        if filtro_carpeta == "Todas las Asignaturas" or e["asignatura_carpeta"] == filtro_carpeta
-                    ]
-                    with col_f2:
-                        st.info(
-                            f"Se desglosaron **{len(entradas_filtradas)} archivos** dentro de `{z_nom}` "
-                            f"(de un total de {len(entradas_internas)} documentos) leyendo solo los últimos 64 KB del archivo."
+                        r_obj = mapa_objetos_repo[r_nom]
+                        bloque_repo = extraer_repositorio_completo(
+                            usuario_gh,
+                            r_obj,
+                            token=token_gh,
+                            incluir_literatura=incluir_lit_en_txt,
                         )
+                        partes_txt.append(bloque_repo)
+                    barra.progress(1.0, text="Compilación finalizada correctamente.")
+                    st.session_state["txt_compilado_contenido"] = "\n".join(partes_txt)
+                    st.session_state["txt_compilado_nombre"] = nombre_archivo_final
 
-                    df_int = pd.DataFrame([
-                        {
-                            "Asignatura / Carpeta": e["asignatura_carpeta"],
-                            "Documento": e["nombre_archivo"],
-                            "Formato": e["extension"],
-                            "Tamaño Real (KB)": e["kb_real"],
-                            "Tamaño Comprimido (KB)": round(e["comp_size"] / 1024.0, 1),
-                            "Offset Byte en Drive": e["lfh_offset"],
-                        }
-                        for e in entradas_filtradas
-                    ])
-                    st.dataframe(df_int, use_container_width=True, hide_index=True)
-
-                    docs_visibles = [
-                        e for e in entradas_filtradas
-                        if e["extension"] in (".pdf", ".xlsx", ".xls", ".txt", ".docx")
-                    ]
-                    if docs_visibles:
-                        st.markdown("#### Visor y Extractor Quirúrgico de Documentos Internos del .ZIP:")
-                        c_v1, c_v2, c_v3 = st.columns([2.2, 0.9, 0.9])
-                        with c_v1:
-                            opciones_etiquetas = [
-                                f"{e['asignatura_carpeta']} / {e['nombre_archivo']} ({e['kb_real']} KB)"
-                                for e in docs_visibles
-                            ]
-                            idx_doc_sel = st.selectbox(
-                                "Elige cualquier PDF o Excel dentro de Respaldo_ULagos_2026.zip para abrirlo en vivo:",
-                                options=range(len(opciones_etiquetas)),
-                                format_func=lambda i: opciones_etiquetas[i],
-                                key=f"sel_int_{z_id}",
-                            )
-                        doc_obj = docs_visibles[idx_doc_sel]
-                        with c_v2:
-                            pag_ini_int = st.number_input(
-                                "Desde página (PDF):",
-                                min_value=1,
-                                max_value=1500,
-                                value=1,
-                                step=1,
-                                key=f"pi_int_{z_id}",
-                            )
-                        with c_v3:
-                            pag_fin_int = st.number_input(
-                                "Hasta página (PDF):",
-                                min_value=1,
-                                max_value=1500,
-                                value=1,
-                                step=1,
-                                key=f"pf_int_{z_id}",
-                            )
-
-                        with st.spinner(f"Extrayendo solo '{doc_obj['nombre_archivo']}' ({doc_obj['kb_real']} KB) desde Google Drive..."):
-                            raw_file_bytes = extraer_archivo_individual_de_zip_drive(
-                                z_id,
-                                doc_obj["lfh_offset"],
-                                doc_obj["comp_size"],
-                                doc_obj["comp_method"],
-                            )
-
-                        st.download_button(
-                            label=f"DESCARGAR ARCHIVO INDIVIDUAL: {doc_obj['nombre_archivo']} ({doc_obj['kb_real']} KB)",
-                            data=raw_file_bytes,
-                            file_name=doc_obj["nombre_archivo"],
-                            mime="application/octet-stream",
-                            use_container_width=True,
-                        )
-
-                        if doc_obj["extension"] == ".pdf":
-                            b64_cut, tot_p_drv, ri_d, rf_d = _recortar_paginas_pdf_en_base64(
-                                raw_file_bytes, pag_ini_int, pag_fin_int
-                            )
-                            if b64_cut:
-                                st.success(
-                                    f"Mostrando página/lámina {ri_d} a {rf_d} (de {tot_p_drv} totales) de `{doc_obj['nombre_archivo']}`:"
-                                )
-                                renderizar_visor_pdf_canvas_js(b64_cut, doc_obj["nombre_archivo"], ri_d, rf_d)
-                        elif doc_obj["extension"] in (".xlsx", ".xls"):
-                            xls_obj = pd.ExcelFile(io.BytesIO(raw_file_bytes))
-                            hoja_sel = st.selectbox("Hoja del archivo Excel:", options=xls_obj.sheet_names)
-                            df_hoja = pd.read_excel(xls_obj, sheet_name=hoja_sel)
-                            st.dataframe(df_hoja, use_container_width=True)
-    except Exception as exc_drv:
-        st.error(f"Error al consultar Google Drive API: {exc_drv}")
-
-# ------------------------------------------------------------------------------
-# PESTAÑA 4: BÓVEDA MOODLE EN 1 CLIC Y BUSCADOR DE PÁGINAS
-# ------------------------------------------------------------------------------
-with tab4:
-    st.markdown(
-        "<div class='sec-header'>4. BÓVEDA DE CÁTEDRA ALOJADA EN EL SERVIDOR Y BUSCADOR DE PÁGINAS</div>",
-        unsafe_allow_html=True,
-    )
-    nombre_maestro, texto_maestro, dict_secciones = cargar_boveda_moodle_del_repo()
-
-    if dict_secciones:
-        st.write(f"Archivo maestro detectado en el repositorio: `{nombre_maestro}` ({len(dict_secciones)} asignaturas indexadas).")
-        cols_bov = st.columns(min(3, len(dict_secciones)))
-        for idx_s, (nom_sec, contenido_sec) in enumerate(dict_secciones.items()):
-            slug_sec = re.sub(r"[^A-Za-z0-9]+", "_", nom_sec).strip("_").upper()
-            kb_sec = len(contenido_sec.encode("utf-8")) / 1024.0
-            with cols_bov[idx_s % len(cols_bov)]:
+            if "txt_compilado_contenido" in st.session_state:
+                tam_kb = len(st.session_state["txt_compilado_contenido"].encode("utf-8")) / 1024.0
+                st.success(
+                    f"Archivo listo: {st.session_state['txt_compilado_nombre']} ({tam_kb:,.1f} KB compilados)."
+                )
                 st.download_button(
-                    label=f"DESCARGAR CÁTEDRA: {nom_sec} ({kb_sec:,.0f} KB)",
-                    data=contenido_sec.encode("utf-8"),
-                    file_name=f"CATEDRA_{slug_sec}_2026.txt",
+                    label=f"DESCARGAR {st.session_state['txt_compilado_nombre']}",
+                    data=st.session_state["txt_compilado_contenido"].encode("utf-8"),
+                    file_name=st.session_state["txt_compilado_nombre"],
                     mime="text/plain",
                     use_container_width=True,
-                    key=f"btn_bov_{idx_s}",
                 )
 
-        busqueda = st.text_input(
-            "Buscar autor, fórmula o marcador de página en toda la Bóveda (ej. 'Fontaine', 'Hamada', 'Weber', 'Página 20'):"
+    # --------------------------------------------------------------------------
+    # PESTAÑA 2: CUADRILLAS CON APERTURA QUIRÚRGICA DE PDF DESDE GOOGLE DRIVE API
+    # --------------------------------------------------------------------------
+    with tab2:
+        st.markdown(
+            "<div class='sec-header'>2. CUADRILLAS METODOLÓGICAS CON APERTURA DEL PDF ORIGINAL EN LA PÁGINA EXACTA</div>",
+            unsafe_allow_html=True,
         )
-        if busqueda.strip():
-            lineas_tot = texto_maestro.splitlines()
-            bloques_encontrados = []
-            for idx_l, lin in enumerate(lineas_tot):
-                if busqueda.lower() in lin.lower():
-                    ini_b = max(0, idx_l - 2)
-                    fin_b = min(len(lineas_tot), idx_l + 6)
-                    bloques_encontrados.append("\n".join(lineas_tot[ini_b:fin_b]))
-                    if len(bloques_encontrados) >= 15:
-                        break
-            st.write(f"Mostrando las primeras {len(bloques_encontrados)} coincidencias con contexto de página:")
-            st.code("\n\n" + ("\n" + "=" * 60 + "\n").join(bloques_encontrados), language="text")
+        st.caption(
+            "Haz clic en el botón verde de cualquier tarjeta: el motor extraerá vía HTTP Range únicamente los bytes "
+            "de ese PDF desde adentro de tu 'Respaldo_ULagos_2026.zip' en Google Drive y dibujará la lámina exacta con PDF.js."
+        )
+        ramos_disponibles_lit = ["Mostrar Todos los Ramos"] + list(CUADRILLAS_LITERATURA_POR_RAMO.keys())
+        filtro_ramo_lit = st.selectbox("Filtrar cuadrillas por asignatura:", options=ramos_disponibles_lit)
+
+        if filtro_ramo_lit == "Mostrar Todos los Ramos":
+            for nombre_r in CUADRILLAS_LITERATURA_POR_RAMO:
+                renderizar_cuadrillas_ramo(nombre_r)
+        else:
+            renderizar_cuadrillas_ramo(filtro_ramo_lit)
+
+    # --------------------------------------------------------------------------
+    # PESTAÑA 3: EXPLORADOR QUIRÚRGICO DE GOOGLE DRIVE (.ZIP Y PDFS)
+    # --------------------------------------------------------------------------
+    with tab3:
+        st.markdown(
+            "<div class='sec-header'>3. EXPLORADOR QUIRÚRGICO DE GOOGLE DRIVE (INSPECCIÓN INTERNA DE .ZIP VÍA HTTP RANGE)</div>",
+            unsafe_allow_html=True,
+        )
+
+        try:
+            archivos_drv = listar_archivos_google_drive_service_account()
+            st.success(
+                f"Autenticación OAuth2 exitosa con `drive.googleapis.com` (Proyecto: `motor-sii-python`). "
+                f"Elementos raíz compartidos detectados: **{len(archivos_drv)}**."
+            )
+
+            if archivos_drv:
+                df_drv = pd.DataFrame([
+                    {
+                        "Nombre en Google Drive": a.get("name", ""),
+                        "Tipo MIME": a.get("mimeType", ""),
+                        "Tamaño (KB)": round(int(a.get("size", 0)) / 1024, 1) if a.get("size") else 0.0,
+                        "ID de Google Drive": a.get("id", ""),
+                        "Abrir en Drive": a.get("webViewLink", ""),
+                    }
+                    for a in archivos_drv
+                ])
+                st.dataframe(
+                    df_drv,
+                    column_config={"Abrir en Drive": st.column_config.LinkColumn("Enlace Drive")},
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+                zips_en_drive = [
+                    a for a in archivos_drv
+                    if a.get("name", "").lower().endswith(".zip") and int(a.get("size", 0)) > 0
+                ]
+
+                for z_arch in zips_en_drive:
+                    z_id = z_arch["id"]
+                    z_nom = z_arch["name"]
+                    z_size = int(z_arch["size"])
+
+                    st.markdown(
+                        f"<div class='sec-header'>CONTENIDO INTERNO DE {z_nom} ({z_size / (1024*1024):,.1f} MB) — LEÍDO VÍA HTTP RANGE EN 0,2 SEGUNDOS</div>",
+                        unsafe_allow_html=True,
+                    )
+
+                    entradas_internas = listar_indice_interno_zip_en_drive(z_id, z_size)
+                    if entradas_internas:
+                        carpetas_unicas = ["Todas las Asignaturas"] + sorted(
+                            list({e["asignatura_carpeta"] for e in entradas_internas})
+                        )
+                        col_f1, col_f2 = st.columns([1.4, 2.6])
+                        with col_f1:
+                            filtro_carpeta = st.selectbox(
+                                "Filtrar por Carpeta / Ramo dentro del .ZIP:",
+                                options=carpetas_unicas,
+                                key=f"f_carp_{z_id}",
+                            )
+                        entradas_filtradas = [
+                            e for e in entradas_internas
+                            if filtro_carpeta == "Todas las Asignaturas" or e["asignatura_carpeta"] == filtro_carpeta
+                        ]
+                        with col_f2:
+                            st.info(
+                                f"Se desglosaron **{len(entradas_filtradas)} archivos** dentro de `{z_nom}` "
+                                f"(de un total de {len(entradas_internas)} documentos) leyendo solo los últimos 64 KB del archivo."
+                            )
+
+                        df_int = pd.DataFrame([
+                            {
+                                "Asignatura / Carpeta": e["asignatura_carpeta"],
+                                "Documento": e["nombre_archivo"],
+                                "Formato": e["extension"],
+                                "Tamaño Real (KB)": e["kb_real"],
+                                "Tamaño Comprimido (KB)": round(e["comp_size"] / 1024.0, 1),
+                                "Offset Byte en Drive": e["lfh_offset"],
+                            }
+                            for e in entradas_filtradas
+                        ])
+                        st.dataframe(df_int, use_container_width=True, hide_index=True)
+
+                        docs_visibles = [
+                            e for e in entradas_filtradas
+                            if e["extension"] in (".pdf", ".xlsx", ".xls", ".txt", ".docx")
+                        ]
+                        if docs_visibles:
+                            st.markdown("#### Visor y Extractor Quirúrgico de Documentos Internos del .ZIP:")
+                            c_v1, c_v2, c_v3 = st.columns([2.2, 0.9, 0.9])
+                            with c_v1:
+                                opciones_etiquetas = [
+                                    f"{e['asignatura_carpeta']} / {e['nombre_archivo']} ({e['kb_real']} KB)"
+                                    for e in docs_visibles
+                                ]
+                                idx_doc_sel = st.selectbox(
+                                    "Elige cualquier PDF o Excel dentro de Respaldo_ULagos_2026.zip para abrirlo en vivo:",
+                                    options=range(len(opciones_etiquetas)),
+                                    format_func=lambda i: opciones_etiquetas[i],
+                                    key=f"sel_int_{z_id}",
+                                )
+                            doc_obj = docs_visibles[idx_doc_sel]
+                            with c_v2:
+                                pag_ini_int = st.number_input(
+                                    "Desde página (PDF):",
+                                    min_value=1,
+                                    max_value=1500,
+                                    value=1,
+                                    step=1,
+                                    key=f"pi_int_{z_id}",
+                                )
+                            with c_v3:
+                                pag_fin_int = st.number_input(
+                                    "Hasta página (PDF):",
+                                    min_value=1,
+                                    max_value=1500,
+                                    value=1,
+                                    step=1,
+                                    key=f"pf_int_{z_id}",
+                                )
+
+                            with st.spinner(f"Extrayendo solo '{doc_obj['nombre_archivo']}' ({doc_obj['kb_real']} KB) desde Google Drive..."):
+                                raw_file_bytes = extraer_archivo_individual_de_zip_drive(
+                                    z_id,
+                                    doc_obj["lfh_offset"],
+                                    doc_obj["comp_size"],
+                                    doc_obj["comp_method"],
+                                )
+
+                            st.download_button(
+                                label=f"DESCARGAR ARCHIVO INDIVIDUAL: {doc_obj['nombre_archivo']} ({doc_obj['kb_real']} KB)",
+                                data=raw_file_bytes,
+                                file_name=doc_obj["nombre_archivo"],
+                                mime="application/octet-stream",
+                                use_container_width=True,
+                            )
+
+                            if doc_obj["extension"] == ".pdf":
+                                b64_cut, tot_p_drv, ri_d, rf_d = _recortar_paginas_pdf_en_base64(
+                                    raw_file_bytes, pag_ini_int, pag_fin_int
+                                )
+                                if b64_cut:
+                                    st.success(
+                                        f"Mostrando página/lámina {ri_d} a {rf_d} (de {tot_p_drv} totales) de `{doc_obj['nombre_archivo']}`:"
+                                    )
+                                    renderizar_visor_pdf_canvas_js(b64_cut, doc_obj["nombre_archivo"], ri_d, rf_d)
+                            elif doc_obj["extension"] in (".xlsx", ".xls"):
+                                xls_obj = pd.ExcelFile(io.BytesIO(raw_file_bytes))
+                                hoja_sel = st.selectbox("Hoja del archivo Excel:", options=xls_obj.sheet_names)
+                                df_hoja = pd.read_excel(xls_obj, sheet_name=hoja_sel)
+                                st.dataframe(df_hoja, use_container_width=True)
+        except Exception as exc_drv:
+            st.error(f"Error al consultar Google Drive API: {exc_drv}")
+
+    # --------------------------------------------------------------------------
+    # PESTAÑA 4: BÓVEDA MOODLE EN 1 CLIC Y BUSCADOR DE PÁGINAS
+    # --------------------------------------------------------------------------
+    with tab4:
+        st.markdown(
+            "<div class='sec-header'>4. BÓVEDA DE CÁTEDRA ALOJADA EN EL SERVIDOR Y BUSCADOR DE PÁGINAS</div>",
+            unsafe_allow_html=True,
+        )
+        nombre_maestro, texto_maestro, dict_secciones = cargar_boveda_moodle_del_repo()
+
+        if dict_secciones:
+            st.write(f"Archivo maestro detectado en el repositorio: `{nombre_maestro}` ({len(dict_secciones)} asignaturas indexadas).")
+            cols_bov = st.columns(min(3, len(dict_secciones)))
+            for idx_s, (nom_sec, contenido_sec) in enumerate(dict_secciones.items()):
+                slug_sec = re.sub(r"[^A-Za-z0-9]+", "_", nom_sec).strip("_").upper()
+                kb_sec = len(contenido_sec.encode("utf-8")) / 1024.0
+                with cols_bov[idx_s % len(cols_bov)]:
+                    st.download_button(
+                        label=f"DESCARGAR CÁTEDRA: {nom_sec} ({kb_sec:,.0f} KB)",
+                        data=contenido_sec.encode("utf-8"),
+                        file_name=f"CATEDRA_{slug_sec}_2026.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                        key=f"btn_bov_{idx_s}",
+                    )
+
+            busqueda = st.text_input(
+                "Buscar autor, fórmula o marcador de página en toda la Bóveda (ej. 'Fontaine', 'Hamada', 'Weber', 'Página 20'):"
+            )
+            if busqueda.strip():
+                lineas_tot = texto_maestro.splitlines()
+                bloques_encontrados = []
+                for idx_l, lin in enumerate(lineas_tot):
+                    if busqueda.lower() in lin.lower():
+                        ini_b = max(0, idx_l - 2)
+                        fin_b = min(len(lineas_tot), idx_l + 6)
+                        bloques_encontrados.append("\n".join(lineas_tot[ini_b:fin_b]))
+                        if len(bloques_encontrados) >= 15:
+                            break
+                st.write(f"Mostrando las primeras {len(bloques_encontrados)} coincidencias con contexto de página:")
+                st.code("\n\n" + ("\n" + "=" * 60 + "\n").join(bloques_encontrados), language="text")
+
+    # --------------------------------------------------------------------------
+    # PESTAÑA 5: SUPER CENTRAL DE MANDO (PUENTE EN VIVO HACIA TODOS TUS REPOS)
+    # --------------------------------------------------------------------------
+    with tab5:
+        st.markdown(
+            "<div class='sec-header'>5. SUPER CENTRAL DE MANDO — PUENTE EN VIVO HACIA TODOS TUS REPOSITORIOS</div>",
+            unsafe_allow_html=True,
+        )
+        st.write(
+            "Desde esta consola puedes conectar todas tus aplicaciones de asignaturas (`PROYECTOS-2026`, "
+            "`DESARROLLO-Y-GESTION-TERRITORIAL-2026`, `FINANZAS-AVANZADAS-2026`, `GESTION-TRIBUTARIA-2026`) "
+            "a este Super Hub **sin sobrescribir ni borrar ni una sola línea de su código original**. "
+            "El inyector añade únicamente un conector de 14 líneas al final del `app.py` de cada ramo y "
+            "asegura que su `requirements.txt` incluya `pypdf` y `google-auth`."
+        )
+
+        repos_objetivo_puente = [
+            "PROYECTOS-2026",
+            "DESARROLLO-Y-GESTION-TERRITORIAL-2026",
+            "FINANZAS-AVANZADAS-2026",
+            "FINANZAS-AVANZADAS",
+            "GESTION-TRIBUTARIA-2026",
+        ]
+
+        c_cmd1, c_cmd2 = st.columns([1.8, 2.2])
+        with c_cmd1:
+            repos_a_conectar = st.multiselect(
+                "Selecciona los repositorios donde deseas inyectar o actualizar el Puente en Vivo:",
+                options=repos_objetivo_puente,
+                default=["PROYECTOS-2026", "DESARROLLO-Y-GESTION-TERRITORIAL-2026"],
+            )
+            btn_inyectar = st.button(
+                "INYECTAR PUENTE EN VIVO (MODO NO DESTRUCTIVO)",
+                type="primary",
+                use_container_width=True,
+            )
+            btn_desacoplar = st.button(
+                "Desacoplar Puente y Restaurar app.py Original",
+                use_container_width=True,
+            )
+
+        with c_cmd2:
+            repo_preview_snip = st.selectbox(
+                "O copia manualmente las 14 líneas para pegarlas al final de cualquier app.py:",
+                options=repos_objetivo_puente,
+            )
+            st.code(generar_snippet_conector_hijo(repo_preview_snip).strip(), language="python")
+
+        if btn_inyectar:
+            if not token_gh.strip():
+                st.error(
+                    "Para inyectar automáticamente en otros repositorios desde la nube, pega tu Token de GitHub "
+                    "(Personal Access Token con permiso 'repo') en la barra lateral izquierda, o copia las 14 líneas de arriba al final de tu app.py."
+                )
+            else:
+                for r_dest in repos_a_conectar:
+                    try:
+                        with st.spinner(f"Conectando puente no destructivo en {r_dest}..."):
+                            inyectar_puente_no_destructivo_en_repo(usuario_gh, r_dest, token_gh)
+                        st.success(
+                            f"Puente conectado exitosamente al final de `{r_dest}/app.py` y `requirements.txt` verificado."
+                        )
+                    except Exception as exc_inj:
+                        st.error(f"No se pudo inyectar en `{r_dest}`: {exc_inj}")
+
+        if btn_desacoplar:
+            if not token_gh.strip():
+                st.error("Ingresa tu Token de GitHub en la barra lateral para desacoplar automáticamente.")
+            else:
+                for r_dest in repos_a_conectar:
+                    try:
+                        fue_removido = desacoplar_puente_de_repo(usuario_gh, r_dest, token_gh)
+                        if fue_removido:
+                            st.success(f"Puente removido limpiamente de `{r_dest}/app.py`.")
+                        else:
+                            st.info(f"`{r_dest}/app.py` no tenía el bloque del puente activo.")
+                    except Exception as exc_rem:
+                        st.error(f"Error al desacoplar `{r_dest}`: {exc_rem}")
+
+        st.divider()
+        st.markdown("#### Simulador en Vivo: Así se ve el Nodo Receptor al final de cualquiera de tus otras Apps")
+        repo_sim = st.selectbox(
+            "Previsualizar cómo se renderiza el puente dentro de la aplicación destino:",
+            options=repos_objetivo_puente,
+            key="sim_nodo_hijo",
+        )
+        ejecutar_nodo_receptor_puente(repo_sim)
