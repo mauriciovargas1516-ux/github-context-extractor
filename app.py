@@ -1,24 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-app.py — SUPER HUB ACADÉMICO ULAGOS 2026 CON LECTOR QUIRÚRGICO DE .ZIP EN GOOGLE DRIVE API
+app.py — SUPER HUB ACADÉMICO ULAGOS 2026 CON VISOR GRÁFICO PDF.JS Y GOOGLE DRIVE API
 Repositorio: https://github.com/mauriciovargas1516-ux/github-context-extractor
 - Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com).
-- MOTOR HTTP BYTE-RANGE PARA ARCHIVOS .ZIP GIGANTES (ej. Respaldo_ULagos_2026.zip de 443.9 MB):
-  1) Lee únicamente los últimos 64 KB del .ZIP en Google Drive para extraer el Directorio Central
-     y listar al instante los 98 archivos y carpetas internos sin descargar los 444 MB.
-  2) Al abrir un PDF o Excel desde las Cuadrillas (Pestaña 2) o desde el Explorador (Pestaña 3),
-     descarga vía HTTP Range exclusivamente el fragmento de bytes de ese archivo dentro del .ZIP,
-     lo descomprime en RAM con zlib y recorta la página/lámina exacta con pypdf en < 1 segundo.
+- Extracción quirúrgica HTTP Byte-Range dentro de archivos .ZIP gigantes en Google Drive
+  (extrae cualquier PDF o Excel dentro de Respaldo_ULagos_2026.zip en < 1 segundo).
+- VISOR GRÁFICO HTML5 CANVAS (Mozilla PDF.js + Blob URL): evita al 100% el bloqueo gris
+  de Google Chrome en iframes anidados, renderizando la página exacta con controles de Zoom.
 """
 
 import io
 import os
 import re
-import time
 import json
 import zlib
 import struct
-import shutil
 import base64
 import zipfile
 import unicodedata
@@ -26,12 +22,11 @@ import urllib3
 import urllib.request
 import urllib.error
 from datetime import datetime
-from urllib.parse import urljoin
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
-from bs4 import BeautifulSoup
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -235,10 +230,6 @@ def listar_archivos_google_drive_service_account():
 
 
 def _descargar_rango_bytes_drive(file_id, start_byte, end_byte):
-    """
-    Descarga únicamente el segmento [start_byte, end_byte] de un archivo en Google Drive
-    usando el encabezado HTTP Range (evita descargar los 444 MB completos del .ZIP).
-    """
     token = obtener_token_bearer_drive()
     headers = {
         "Authorization": f"Bearer {token}",
@@ -253,12 +244,8 @@ def _descargar_rango_bytes_drive(file_id, start_byte, end_byte):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def listar_indice_interno_zip_en_drive(file_id, file_size):
-    """
-    Lee el Directorio Central de un archivo .ZIP alojado en Google Drive pidiendo solo
-    los últimos 64 KB (HTTP Range). Devuelve la lista completa de archivos internos en < 0.2 s.
-    """
     file_size = int(file_size)
-    tail_len = min(file_size, 131072)  # Últimos 128 KB
+    tail_len = min(file_size, 131072)
     tail_start = max(0, file_size - tail_len)
     tail_bytes = _descargar_rango_bytes_drive(file_id, tail_start, file_size - 1)
 
@@ -269,7 +256,6 @@ def listar_indice_interno_zip_en_drive(file_id, file_size):
     eocd = tail_bytes[eocd_pos : eocd_pos + 22]
     _, _, _, _, total_entries, cd_size, cd_offset, _ = struct.unpack("<4sHHHHIIH", eocd)
 
-    # Si el Directorio Central cabe completo dentro del bloque ya descargado, usarlo directamente
     if cd_offset >= tail_start and (cd_offset + cd_size) <= file_size:
         rel_ini = cd_offset - tail_start
         cd_bytes = tail_bytes[rel_ini : rel_ini + cd_size]
@@ -314,10 +300,6 @@ def listar_indice_interno_zip_en_drive(file_id, file_size):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def extraer_archivo_individual_de_zip_drive(file_id, lfh_offset, comp_size, comp_method):
-    """
-    Descarga únicamente el rango de bytes [lfh_offset ... lfh_offset + 30 + 512 + comp_size]
-    de un archivo específico dentro del .ZIP de 444 MB en Google Drive y lo descomprime en RAM.
-    """
     inicio = int(lfh_offset)
     fin = inicio + 30 + 1024 + int(comp_size)
     chunk = _descargar_rango_bytes_drive(file_id, inicio, fin)
@@ -348,11 +330,169 @@ def descargar_bytes_archivo_drive_por_id(file_id):
 
 
 # ==============================================================================
-# 3. CATÁLOGO DE REPOSITORIOS Y CUADRILLAS METODOLÓGICAS CON CITAS EXACTAS
+# 3. VISOR GRÁFICO HTML5 CANVAS (MOZILLA PDF.JS) ANTI-BLOQUEO DE CHROME
+# ==============================================================================
+
+def renderizar_visor_pdf_canvas_js(b64_pdf, nombre_doc, pag_ini, pag_fin):
+    """
+    Dibuja las páginas recortadas del PDF en un lienzo gráfico HTML5 <canvas> usando
+    Mozilla PDF.js + botón de apertura en pestaña nueva vía Blob URL.
+    Nunca es bloqueado por el filtro de iframes de Google Chrome.
+    """
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+      <style>
+        body {{
+          margin: 0;
+          padding: 0;
+          background-color: #0F172A;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          color: #F8FAFC;
+        }}
+        .toolbar {{
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          background-color: #1E293B;
+          border-bottom: 1px solid #334155;
+          padding: 8px 14px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 8px;
+        }}
+        .toolbar-title {{
+          font-size: 13px;
+          font-weight: 700;
+          color: #E2E8F0;
+        }}
+        .toolbar-btns {{
+          display: flex;
+          gap: 6px;
+          align-items: center;
+        }}
+        button.btn-tool {{
+          background-color: #2563EB;
+          color: #FFFFFF;
+          border: none;
+          border-radius: 4px;
+          padding: 5px 11px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+        }}
+        button.btn-tool:hover {{
+          background-color: #1D4ED8;
+        }}
+        button.btn-sec {{
+          background-color: #334155;
+          color: #F8FAFC;
+          border: 1px solid #475569;
+          border-radius: 4px;
+          padding: 5px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+        }}
+        button.btn-sec:hover {{
+          background-color: #475569;
+        }}
+        #canvas-container {{
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: 16px;
+          gap: 18px;
+          height: 620px;
+          overflow-y: auto;
+        }}
+        canvas {{
+          background-color: #FFFFFF;
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+          border-radius: 4px;
+          max-width: 98%;
+          height: auto;
+        }}
+      </style>
+    </head>
+    <body>
+      <div class="toolbar">
+        <div class="toolbar-title">{nombre_doc} — Lámina / Página {pag_ini} a {pag_fin}</div>
+        <div class="toolbar-btns">
+          <button class="btn-sec" onclick="cambiarZoom(-0.25)">Zoom -</button>
+          <span id="zoom-label" style="font-size:12px;min-width:45px;text-align:center;">150%</span>
+          <button class="btn-sec" onclick="cambiarZoom(0.25)">Zoom +</button>
+          <button class="btn-tool" onclick="abrirEnPestanaNueva()">Abrir en Pestaña Nueva &#8599;</button>
+        </div>
+      </div>
+      <div id="canvas-container"></div>
+
+      <script>
+        const b64Data = "{b64_pdf}";
+        const rawBin = atob(b64Data);
+        const uint8Array = new Uint8Array(rawBin.length);
+        for (let i = 0; i < rawBin.length; i++) {{
+          uint8Array[i] = rawBin.charCodeAt(i);
+        }}
+
+        const pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        let pdfDoc = null;
+        let currentScale = 1.5;
+
+        function renderAllPages() {{
+          const container = document.getElementById('canvas-container');
+          container.innerHTML = '';
+          document.getElementById('zoom-label').innerText = Math.round(currentScale * 100) + '%';
+
+          for (let num = 1; num <= pdfDoc.numPages; num++) {{
+            const canvas = document.createElement('canvas');
+            canvas.id = 'pdf-canvas-' + num;
+            container.appendChild(canvas);
+
+            pdfDoc.getPage(num).then(function(page) {{
+              const viewport = page.getViewport({{ scale: currentScale }});
+              const ctx = canvas.getContext('2d');
+              canvas.height = viewport.height;
+              canvas.width = viewport.width;
+              page.render({{ canvasContext: ctx, viewport: viewport }});
+            }});
+          }}
+        }}
+
+        function cambiarZoom(delta) {{
+          currentScale = Math.max(0.75, Math.min(3.0, currentScale + delta));
+          if (pdfDoc) renderAllPages();
+        }}
+
+        function abrirEnPestanaNueva() {{
+          const blob = new Blob([uint8Array], {{ type: 'application/pdf' }});
+          const blobUrl = URL.createObjectURL(blob);
+          window.open(blobUrl, '_blank');
+        }}
+
+        pdfjsLib.getDocument({{ data: uint8Array }}).promise.then(function(pdf) {{
+          pdfDoc = pdf;
+          renderAllPages();
+        }});
+      </script>
+    </body>
+    </html>
+    """
+    components.html(html_code, height=690, scrolling=False)
+
+
+# ==============================================================================
+# 4. CATÁLOGO DE REPOSITORIOS Y CUADRILLAS METODOLÓGICAS CON CITAS EXACTAS
 # ==============================================================================
 
 GITHUB_USER_DEFAULT = "mauriciovargas1516-ux"
-URL_LOGIN_MOODLE = "https://www.ulagosvirtual.cl/login/index.php"
 
 MAPA_REPOS_A_RAMOS = {
     "PROYECTOS-2026": {
@@ -842,23 +982,16 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
 
 
 # ==============================================================================
-# 4. BUSCADOR QUIRÚRGICO DE PDFS EN GOOGLE DRIVE (SUELTOS O DENTRO DEL .ZIP 444 MB)
+# 5. BUSCADOR QUIRÚRGICO DE PDFS EN GOOGLE DRIVE (SUELTOS O DENTRO DEL .ZIP 444 MB)
 # ==============================================================================
 
 def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
-    """
-    Busca los bytes binarios del PDF solicitado sin descargar el ZIP completo de 444 MB:
-    1) Archivos PDF sueltos compartidos en Google Drive.
-    2) Dentro de cualquier archivo .ZIP compartido en Google Drive (como Respaldo_ULagos_2026.zip)
-       usando HTTP Range sobre el Directorio Central y extrayendo solo el rango de bytes del PDF.
-    3) En memoria del Scraper de Moodle o repositorio local.
-    """
     clave_obj = _normalizar_clave_nombre(nombre_pdf)
 
     try:
         archivos_drive = listar_archivos_google_drive_service_account()
 
-        # 1. Revisar primero si hay un PDF suelto compartido en Drive
+        # 1. Revisar si hay un PDF suelto compartido en Drive
         for arch in archivos_drive:
             nom_d = arch.get("name", "")
             if nom_d.lower().endswith(".pdf"):
@@ -873,7 +1006,6 @@ def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
             tam_d = int(arch.get("size", 0))
             if nom_d.lower().endswith(".zip") and tam_d > 0:
                 entradas_zip = listar_indice_interno_zip_en_drive(arch["id"], tam_d)
-                # Buscar coincidencia exacta primero, luego parcial
                 elegida = None
                 for e in entradas_zip:
                     if e["extension"] == ".pdf":
@@ -898,18 +1030,6 @@ def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
                     return pdf_bytes, f"Google Drive ZIP Quirúrgico ({nom_d} -> {elegida['ruta_completa']})"
     except Exception:
         pass
-
-    # 3. Revisar en la memoria local de sesión si se usó el Scraper de Moodle
-    if "moodle_zip_bytes" in st.session_state and st.session_state["moodle_zip_bytes"]:
-        try:
-            with zipfile.ZipFile(io.BytesIO(st.session_state["moodle_zip_bytes"]), "r") as zf:
-                for zi in zf.infolist():
-                    if zi.filename.lower().endswith(".pdf"):
-                        clave_z = _normalizar_clave_nombre(os.path.basename(zi.filename))
-                        if clave_z == clave_obj or (len(clave_obj) >= 5 and clave_obj in clave_z):
-                            return zf.read(zi), f"Memoria Moodle ({zi.filename})"
-        except Exception:
-            pass
 
     return None, None
 
@@ -969,16 +1089,13 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
             st.success(
                 f"Documento extraído en vivo vía {fuente_origen} — Mostrando página/lámina {r_i} a {r_f} (de {tot_p} páginas totales)."
             )
-            st.markdown(
-                f'<iframe src="data:application/pdf;base64,{b64_recorte}" width="100%" height="680" '
-                f'style="border:2px solid #1E3A8A;border-radius:6px;"></iframe>',
-                unsafe_allow_html=True,
-            )
+            renderizar_visor_pdf_canvas_js(b64_recorte, nombre_pdf, r_i, r_f)
             st.download_button(
                 label=f"Descargar PDF completo ({nombre_pdf})",
                 data=pdf_bytes,
                 file_name=nombre_pdf,
                 mime="application/pdf",
+                use_container_width=True,
             )
             return
 
@@ -988,7 +1105,7 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
 
 
 # ==============================================================================
-# 5. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
+# 6. FUNCIONES DEL EXTRACTOR GITHUB (INMUNE A HTTP 403) Y BÓVEDA LOCAL
 # ==============================================================================
 
 EXTENSIONES_TEXTO_PERMITIDAS = (
@@ -1261,7 +1378,7 @@ def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatur
 
 
 # ==============================================================================
-# 6. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
+# 7. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
 # ==============================================================================
 
 def renderizar_cuadrillas_ramo(nombre_ramo):
@@ -1307,14 +1424,14 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
 
 
 # ==============================================================================
-# 7. INTERFAZ PRINCIPAL Y VISOR DE DOCUMENTOS AL PULSAR UNA REFERENCIA (?cita=...)
+# 8. INTERFAZ PRINCIPAL Y VISOR DE DOCUMENTOS AL PULSAR UNA REFERENCIA (?cita=...)
 # ==============================================================================
 
 st.markdown(
     """
     <div class="top-banner">
         <h1>SUPER HUB ACADÉMICO ULAGOS 2026: GITHUB + MOODLE SCRAPER + GOOGLE DRIVE API (5 TB)</h1>
-        <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) con extracción quirúrgica HTTP Byte-Range dentro de archivos .ZIP.</p>
+        <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) con extracción quirúrgica HTTP Byte-Range y Visor Gráfico PDF.js.</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1510,7 +1627,7 @@ with tab2:
     )
     st.caption(
         "Haz clic en el botón verde de cualquier tarjeta: el motor extraerá vía HTTP Range únicamente los bytes "
-        "de ese PDF desde adentro de tu 'Respaldo_ULagos_2026.zip' en Google Drive y recortará la lámina exacta."
+        "de ese PDF desde adentro de tu 'Respaldo_ULagos_2026.zip' en Google Drive y dibujará la lámina exacta con PDF.js."
     )
     ramos_disponibles_lit = ["Mostrar Todos los Ramos"] + list(CUADRILLAS_LITERATURA_POR_RAMO.keys())
     filtro_ramo_lit = st.selectbox("Filtrar cuadrillas por asignatura:", options=ramos_disponibles_lit)
@@ -1555,7 +1672,6 @@ with tab3:
                 hide_index=True,
             )
 
-            # Detectar todos los archivos .ZIP compartidos (como Respaldo_ULagos_2026.zip) y abrir su índice interno
             zips_en_drive = [
                 a for a in archivos_drv
                 if a.get("name", "").lower().endswith(".zip") and int(a.get("size", 0)) > 0
@@ -1606,7 +1722,6 @@ with tab3:
                     ])
                     st.dataframe(df_int, use_container_width=True, hide_index=True)
 
-                    # Selector interactivo para abrir en vivo cualquier PDF o Excel de adentro del ZIP
                     docs_visibles = [
                         e for e in entradas_filtradas
                         if e["extension"] in (".pdf", ".xlsx", ".xls", ".txt", ".docx")
@@ -1669,11 +1784,7 @@ with tab3:
                                 st.success(
                                     f"Mostrando página/lámina {ri_d} a {rf_d} (de {tot_p_drv} totales) de `{doc_obj['nombre_archivo']}`:"
                                 )
-                                st.markdown(
-                                    f'<iframe src="data:application/pdf;base64,{b64_cut}" width="100%" height="680" '
-                                    f'style="border:2px solid #1E3A8A;border-radius:6px;"></iframe>',
-                                    unsafe_allow_html=True,
-                                )
+                                renderizar_visor_pdf_canvas_js(b64_cut, doc_obj["nombre_archivo"], ri_d, rf_d)
                         elif doc_obj["extension"] in (".xlsx", ".xls"):
                             xls_obj = pd.ExcelFile(io.BytesIO(raw_file_bytes))
                             hoja_sel = st.selectbox("Hoja del archivo Excel:", options=xls_obj.sheet_names)
