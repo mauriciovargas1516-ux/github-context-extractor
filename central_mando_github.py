@@ -5,9 +5,11 @@ Módulo dedicado para gestionar en lote About, Topics, requirements.txt, README.
 config.toml, archivos arbitrarios y el Puente en Vivo desde github-context-extractor.
 """
 
+import io
 import re
 import json
 import base64
+import zipfile
 import urllib.parse
 import requests
 import pandas as pd
@@ -802,8 +804,14 @@ def renderizar_central_de_mando(
                     key="cm_multi_dir",
                 ).strip().strip("/")
 
+            descomprimir_zip = st.checkbox(
+                "Si subes un archivo .ZIP, descomprimir automáticamente y subir su contenido manteniendo carpetas y nombres exactos",
+                value=True,
+                key="cm_multi_unzip",
+            )
+
             archivos_lote = st.file_uploader(
-                "3. Arrastra o selecciona uno o varios archivos locales:",
+                "3. Arrastra o selecciona uno o varios archivos (o un paquete .ZIP listo para desplegar):",
                 accept_multiple_files=True,
                 key="cm_multi_up",
             )
@@ -813,61 +821,85 @@ def renderizar_central_de_mando(
                 mapa_bytes_lote = {}
                 for f_obj in archivos_lote:
                     raw_b = f_obj.getvalue()
-                    ruta_sug = f"{carpeta_multi}/{f_obj.name}" if carpeta_multi else f_obj.name
-                    filas_preview.append({
-                        "Archivo local": f_obj.name,
-                        "Ruta destino en GitHub (editable)": ruta_sug,
-                        "Tamaño (KB)": round(len(raw_b) / 1024.0, 1),
-                    })
-                    mapa_bytes_lote[f_obj.name] = raw_b
-
-                df_lote_edit = st.data_editor(
-                    pd.DataFrame(filas_preview),
-                    disabled=["Archivo local", "Tamaño (KB)"],
-                    use_container_width=True,
-                    hide_index=True,
-                    key=f"cm_multi_tbl_{repo_multi}_{carpeta_multi}_{len(archivos_lote)}",
-                )
-                msg_multi = st.text_input(
-                    "4. Mensaje de commit:",
-                    value=f"Central de Mando: actualizar {len(archivos_lote)} archivo(s) en {repo_multi}",
-                    key="cm_multi_commit",
-                )
-                if st.button(
-                    f"SUBIR {len(archivos_lote)} ARCHIVO(S) A {repo_multi}",
-                    type="primary",
-                    use_container_width=True,
-                    key="cm_multi_go",
-                ):
-                    if not token_ok:
-                        st.error("Activa el Modo Admin en la barra lateral.")
+                    if descomprimir_zip and f_obj.name.lower().endswith(".zip"):
+                        try:
+                            with zipfile.ZipFile(io.BytesIO(raw_b), "r") as zf_in:
+                                for zinfo in zf_in.infolist():
+                                    if zinfo.is_dir():
+                                        continue
+                                    rel_z = zinfo.filename.replace("\\", "/").strip("/")
+                                    if not rel_z or rel_z.startswith("__MACOSX/") or rel_z.endswith(".DS_Store"):
+                                        continue
+                                    b_inner = zf_in.read(zinfo)
+                                    clave_loc = f"{f_obj.name} :: {rel_z}"
+                                    ruta_sug = f"{carpeta_multi}/{rel_z}" if carpeta_multi else rel_z
+                                    filas_preview.append({
+                                        "Archivo local": clave_loc,
+                                        "Ruta destino en GitHub (editable)": ruta_sug,
+                                        "Tamaño (KB)": round(len(b_inner) / 1024.0, 1),
+                                    })
+                                    mapa_bytes_lote[clave_loc] = b_inner
+                        except Exception as ex_z:
+                            st.error(f"No se pudo descomprimir `{f_obj.name}`: {ex_z}")
                     else:
-                        barra_m = st.progress(0.0, text="Subiendo archivos a GitHub...")
-                        n_tot = len(df_lote_edit)
-                        ok_cnt = 0
-                        for idx_row, fila_m in enumerate(df_lote_edit.itertuples(index=False)):
-                            nom_loc = fila_m[0]
-                            ruta_dest = str(fila_m[1]).strip().strip("/")
-                            barra_m.progress(idx_row / max(n_tot, 1), text=f"Subiendo {ruta_dest} ({idx_row + 1}/{n_tot})...")
-                            if not ruta_dest:
-                                st.warning(f"Se omitió `{nom_loc}` porque la ruta destino quedó vacía.")
-                                continue
-                            try:
-                                escribir_archivo_repo(
-                                    usuario_gh,
-                                    repo_multi,
-                                    ruta_dest,
-                                    mapa_bytes_lote[nom_loc],
-                                    token_gh,
-                                    msg_multi,
-                                )
-                                st.success(f"`{repo_multi}/{ruta_dest}` actualizado.")
-                                ok_cnt += 1
-                            except Exception as ex:
-                                st.error(f"Error al subir `{ruta_dest}`: {ex}")
-                        barra_m.progress(1.0, text=f"Completado: {ok_cnt}/{n_tot} archivos subidos.")
-                        listar_archivos_repo.clear()
+                        ruta_sug = f"{carpeta_multi}/{f_obj.name}" if carpeta_multi else f_obj.name
+                        filas_preview.append({
+                            "Archivo local": f_obj.name,
+                            "Ruta destino en GitHub (editable)": ruta_sug,
+                            "Tamaño (KB)": round(len(raw_b) / 1024.0, 1),
+                        })
+                        mapa_bytes_lote[f_obj.name] = raw_b
 
+                if not filas_preview:
+                    st.warning("No se detectaron archivos válidos para subir.")
+                else:
+                    n_despl = len(filas_preview)
+                    df_lote_edit = st.data_editor(
+                        pd.DataFrame(filas_preview),
+                        disabled=["Archivo local", "Tamaño (KB)"],
+                        use_container_width=True,
+                        hide_index=True,
+                        key=f"cm_multi_tbl_{repo_multi}_{carpeta_multi}_{n_despl}_{descomprimir_zip}",
+                    )
+                    msg_multi = st.text_input(
+                        "4. Mensaje de commit:",
+                        value=f"Central de Mando: actualizar {n_despl} archivo(s) en {repo_multi}",
+                        key="cm_multi_commit",
+                    )
+                    if st.button(
+                        f"SUBIR {n_despl} ARCHIVO(S) A {repo_multi}",
+                        type="primary",
+                        use_container_width=True,
+                        key="cm_multi_go",
+                    ):
+                        if not token_ok:
+                            st.error("Activa el Modo Admin en la barra lateral.")
+                        else:
+                            barra_m = st.progress(0.0, text="Subiendo archivos a GitHub...")
+                            n_tot = len(df_lote_edit)
+                            ok_cnt = 0
+                            for idx_row, fila_m in enumerate(df_lote_edit.itertuples(index=False)):
+                                nom_loc = fila_m[0]
+                                ruta_dest = str(fila_m[1]).strip().strip("/")
+                                barra_m.progress(idx_row / max(n_tot, 1), text=f"Subiendo {ruta_dest} ({idx_row + 1}/{n_tot})...")
+                                if not ruta_dest:
+                                    st.warning(f"Se omitió `{nom_loc}` porque la ruta destino quedó vacía.")
+                                    continue
+                                try:
+                                    escribir_archivo_repo(
+                                        usuario_gh,
+                                        repo_multi,
+                                        ruta_dest,
+                                        mapa_bytes_lote[nom_loc],
+                                        token_gh,
+                                        msg_multi,
+                                    )
+                                    st.success(f"`{repo_multi}/{ruta_dest}` actualizado.")
+                                    ok_cnt += 1
+                                except Exception as ex:
+                                    st.error(f"Error al subir `{ruta_dest}`: {ex}")
+                            barra_m.progress(1.0, text=f"Completado: {ok_cnt}/{n_tot} archivos subidos.")
+                            listar_archivos_repo.clear()
         elif modo_arch == "Editar o Crear 1 archivo en un repositorio":
             c_e1, c_e2, c_e3 = st.columns([1.3, 1.5, 1.2])
             with c_e1:
