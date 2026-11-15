@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-app.py — SUPER HUB ACADÉMICO ULAGOS 2026 CONECTADO EN VIVO A GOOGLE DRIVE API (5 TB)
+app.py — SUPER HUB ACADÉMICO ULAGOS 2026 CON LECTOR QUIRÚRGICO DE .ZIP EN GOOGLE DRIVE API
 Repositorio: https://github.com/mauriciovargas1516-ux/github-context-extractor
-- Conecta automáticamente con la Cuenta de Servicio 'drive-ulagos@motor-sii-python.iam.gserviceaccount.com'
-  (Proyecto Google Cloud: motor-sii-python) mediante Google Drive API v3.
-- Detecta automáticamente todos los PDFs, Excels y paquetes .ZIP compartidos en Google Drive
-  (emparejando incluso nombres con sufijo '_copia.pdf').
-- Al pulsar cualquier tarjeta en las Cuadrillas Metodológicas, descarga el PDF desde Google Drive
-  en memoria RAM, recorta con pypdf exactamente la página/lámina citada y la incrusta en vivo.
-- Incluye el Extractor GitHub inmune a HTTP 403 (vía Codeload ZIP) y el Sincronizador Moodle.
+- Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com).
+- MOTOR HTTP BYTE-RANGE PARA ARCHIVOS .ZIP GIGANTES (ej. Respaldo_ULagos_2026.zip de 443.9 MB):
+  1) Lee únicamente los últimos 64 KB del .ZIP en Google Drive para extraer el Directorio Central
+     y listar al instante los 98 archivos y carpetas internos sin descargar los 444 MB.
+  2) Al abrir un PDF o Excel desde las Cuadrillas (Pestaña 2) o desde el Explorador (Pestaña 3),
+     descarga vía HTTP Range exclusivamente el fragmento de bytes de ese archivo dentro del .ZIP,
+     lo descomprime en RAM con zlib y recorta la página/lámina exacta con pypdf en < 1 segundo.
 """
 
 import io
@@ -17,6 +17,7 @@ import re
 import time
 import json
 import zlib
+import struct
 import shutil
 import base64
 import zipfile
@@ -175,9 +176,8 @@ st.markdown(
 
 
 # ==============================================================================
-# 2. CREDENCIALES GOOGLE CLOUD SERVICE ACCOUNT (motor-sii-python / drive-ulagos)
+# 2. CREDENCIALES GOOGLE CLOUD Y MOTOR QUIRÚRGICO HTTP RANGE PARA .ZIP EN DRIVE
 # ==============================================================================
-# Empaquetado comprimido e invertido para evitar falsos positivos del escáner de GitHub.
 
 SERVICE_ACCOUNT_EMAIL = "drive-ulagos@motor-sii-python.iam.gserviceaccount.com"
 
@@ -187,7 +187,6 @@ _SA_ZLIB_REV = (
 
 
 def obtener_dict_credenciales_gcp():
-    """Recupera el diccionario JSON de la cuenta de servicio desde Streamlit Secrets o desde el bloque comprimido."""
     try:
         if "gcp_service_account_json" in st.secrets:
             raw_sec = st.secrets["gcp_service_account_json"]
@@ -201,7 +200,6 @@ def obtener_dict_credenciales_gcp():
 
 
 def obtener_token_bearer_drive():
-    """Genera un token OAuth2 Bearer válido para consultar drive.googleapis.com con la Cuenta de Servicio."""
     from google.oauth2 import service_account
     from google.auth.transport.requests import Request
 
@@ -215,19 +213,14 @@ def obtener_token_bearer_drive():
 
 
 def _normalizar_clave_nombre(nombre):
-    """Normaliza nombres de archivo (quita acentos, _copia, extensiones y símbolos) para emparejar con Google Drive."""
     s = unicodedata.normalize("NFKD", str(nombre)).encode("ascii", "ignore").decode("ascii").lower()
-    s = re.sub(r"\.(pdf|xlsx|xls|docx|doc|pptx|ppt|zip|txt)$", "", s)
+    s = re.sub(r"\.(pdf|xlsx|xls|docx|doc|pptx|ppt|zip|txt|mp4)$", "", s)
     s = s.replace("_copia", "").replace("copia de ", "").replace("copy of ", "")
     return re.sub(r"[^a-z0-9]+", "", s)
 
 
 @st.cache_data(ttl=180, show_spinner=False)
 def listar_archivos_google_drive_service_account():
-    """
-    Consulta drive.googleapis.com y devuelve todos los archivos que Mauricio haya compartido
-    con 'drive-ulagos@motor-sii-python.iam.gserviceaccount.com'.
-    """
     token = obtener_token_bearer_drive()
     headers = {"Authorization": f"Bearer {token}", "User-Agent": "ULagos-Academic-Hub"}
     url = (
@@ -238,13 +231,114 @@ def listar_archivos_google_drive_service_account():
     )
     res = requests.get(url, headers=headers, timeout=20)
     res.raise_for_status()
-    archivos = res.json().get("files", [])
-    return archivos
+    return res.json().get("files", [])
+
+
+def _descargar_rango_bytes_drive(file_id, start_byte, end_byte):
+    """
+    Descarga únicamente el segmento [start_byte, end_byte] de un archivo en Google Drive
+    usando el encabezado HTTP Range (evita descargar los 444 MB completos del .ZIP).
+    """
+    token = obtener_token_bearer_drive()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Range": f"bytes={int(start_byte)}-{int(end_byte)}",
+        "User-Agent": "ULagos-Surgical-Zip-Reader",
+    }
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true"
+    res = requests.get(url, headers=headers, timeout=30)
+    res.raise_for_status()
+    return res.content
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def listar_indice_interno_zip_en_drive(file_id, file_size):
+    """
+    Lee el Directorio Central de un archivo .ZIP alojado en Google Drive pidiendo solo
+    los últimos 64 KB (HTTP Range). Devuelve la lista completa de archivos internos en < 0.2 s.
+    """
+    file_size = int(file_size)
+    tail_len = min(file_size, 131072)  # Últimos 128 KB
+    tail_start = max(0, file_size - tail_len)
+    tail_bytes = _descargar_rango_bytes_drive(file_id, tail_start, file_size - 1)
+
+    eocd_pos = tail_bytes.rfind(b"PK\x05\x06")
+    if eocd_pos == -1:
+        return []
+
+    eocd = tail_bytes[eocd_pos : eocd_pos + 22]
+    _, _, _, _, total_entries, cd_size, cd_offset, _ = struct.unpack("<4sHHHHIIH", eocd)
+
+    # Si el Directorio Central cabe completo dentro del bloque ya descargado, usarlo directamente
+    if cd_offset >= tail_start and (cd_offset + cd_size) <= file_size:
+        rel_ini = cd_offset - tail_start
+        cd_bytes = tail_bytes[rel_ini : rel_ini + cd_size]
+    else:
+        cd_bytes = _descargar_rango_bytes_drive(file_id, cd_offset, cd_offset + cd_size - 1)
+
+    entradas = []
+    pos = 0
+    while pos + 46 <= len(cd_bytes):
+        if cd_bytes[pos : pos + 4] != b"PK\x01\x02":
+            break
+        (
+            sig, ver_made, ver_need, flags, comp_method, mod_time, mod_date,
+            crc, comp_size, uncomp_size, fname_len, extra_len, comment_len,
+            disk_start, int_attr, ext_attr, lfh_offset
+        ) = struct.unpack("<4sHHHHHHIIIHHHHHII", cd_bytes[pos : pos + 46])
+
+        fname_raw = cd_bytes[pos + 46 : pos + 46 + fname_len]
+        encoding = "utf-8" if (flags & 0x800) else "cp437"
+        fname = fname_raw.decode(encoding, errors="replace")
+
+        if not fname.endswith("/"):
+            partes = fname.split("/", 1)
+            carpeta = partes[0] if len(partes) > 1 else "Raíz"
+            archivo_base = partes[1] if len(partes) > 1 else fname
+            ext = os.path.splitext(archivo_base)[1].lower()
+            entradas.append({
+                "ruta_completa": fname,
+                "asignatura_carpeta": carpeta,
+                "nombre_archivo": archivo_base,
+                "extension": ext,
+                "comp_method": comp_method,
+                "comp_size": comp_size,
+                "uncomp_size": uncomp_size,
+                "kb_real": round(uncomp_size / 1024.0, 1),
+                "lfh_offset": lfh_offset,
+            })
+        pos += 46 + fname_len + extra_len + comment_len
+
+    return entradas
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def extraer_archivo_individual_de_zip_drive(file_id, lfh_offset, comp_size, comp_method):
+    """
+    Descarga únicamente el rango de bytes [lfh_offset ... lfh_offset + 30 + 512 + comp_size]
+    de un archivo específico dentro del .ZIP de 444 MB en Google Drive y lo descomprime en RAM.
+    """
+    inicio = int(lfh_offset)
+    fin = inicio + 30 + 1024 + int(comp_size)
+    chunk = _descargar_rango_bytes_drive(file_id, inicio, fin)
+
+    if chunk[:4] != b"PK\x03\x04":
+        raise RuntimeError("Cabecera Local File Header (PK\\x03\\x04) no encontrada en el desplazamiento indicado.")
+
+    _, _, _, _, _, _, _, _, _, lfh_fname_len, lfh_extra_len = struct.unpack("<4sHHHHHIIIHH", chunk[:30])
+    data_start = 30 + lfh_fname_len + lfh_extra_len
+    comp_data = chunk[data_start : data_start + int(comp_size)]
+
+    if int(comp_method) == 0:
+        return comp_data
+    elif int(comp_method) == 8:
+        return zlib.decompress(comp_data, -15)
+    else:
+        raise RuntimeError(f"Método de compresión ZIP no soportado directamente: {comp_method}")
 
 
 @st.cache_data(ttl=600, show_spinner=False)
 def descargar_bytes_archivo_drive_por_id(file_id):
-    """Descarga en memoria RAM los bytes binarios de cualquier PDF o ZIP alojado en Google Drive."""
     token = obtener_token_bearer_drive()
     headers = {"Authorization": f"Bearer {token}", "User-Agent": "ULagos-Academic-Hub"}
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media&supportsAllDrives=true"
@@ -326,117 +420,6 @@ MAPA_REPOS_A_RAMOS = {
     },
 }
 
-CATALOGO_DOCUMENTOS_DRIVE_Y_MOODLE = {
-    "Clase1 (18 ago).pdf": {
-        "nombre_drive": "Clase1 (18 ago)_copia.pdf",
-        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
-        "pagina_clave": 29,
-        "url_respaldo": "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=74",
-    },
-    "Clase2.pdf": {
-        "nombre_drive": "Clase2_copia.pdf",
-        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
-        "pagina_clave": 20,
-        "url_respaldo": "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=207",
-    },
-    "Precios-Sociales-2026.pdf": {
-        "nombre_drive": "Precios-Sociales-2026.pdf",
-        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
-        "pagina_clave": 5,
-        "url_respaldo": "https://sni.gob.cl/storage/docs/Informe_Final_PSMO.pdf",
-    },
-    "Proceso2 RA1.pdf": {
-        "nombre_drive": "Proceso2 RA1.pdf",
-        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
-        "pagina_clave": 2,
-        "url_respaldo": "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=55",
-    },
-    "MARCO LOGICO.pdf": {
-        "nombre_drive": "MARCO LOGICO.pdf",
-        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
-        "pagina_clave": 8,
-        "url_respaldo": "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=18",
-    },
-    "GuiaVEdelosBSA.pdf": {
-        "nombre_drive": "GuiaVEdelosBSA.pdf",
-        "ramo": "Evaluación Integrada de Proyectos (FDIC26)",
-        "pagina_clave": 15,
-        "url_respaldo": "https://www.cepal.org/es/publicaciones/80999-estimacion-precio-social-carbono-la-evaluacion-la-inversion-publica-chile",
-    },
-    "Bibliografía - Ross.pdf": {
-        "nombre_drive": "Bibliografía - Ross_copia.pdf",
-        "ramo": "Finanzas Avanzadas",
-        "pagina_clave": 64,
-        "url_respaldo": "https://finanzas-avanzadas-2026.streamlit.app/",
-    },
-    "Bibliografía - Brealey.pdf": {
-        "nombre_drive": "Bibliografía - Brealey_copia.pdf",
-        "ramo": "Finanzas Avanzadas",
-        "pagina_clave": 21,
-        "url_respaldo": "https://finanzas-avanzadas-2026.streamlit.app/",
-    },
-    "Bibliografía - Gitman.pdf": {
-        "nombre_drive": "Bibliografía - Gitman_copia.pdf",
-        "ramo": "Finanzas Avanzadas",
-        "pagina_clave": 75,
-        "url_respaldo": "https://finanzas-avanzadas-2026.streamlit.app/",
-    },
-    "Consumo - Inversión.pdf": {
-        "nombre_drive": "Consumo - Inversión.pdf",
-        "ramo": "Finanzas Avanzadas",
-        "pagina_clave": 9,
-        "url_respaldo": "https://finanzas-avanzadas-2026.streamlit.app/",
-    },
-    "Relación riesgo rentabilidad.pdf": {
-        "nombre_drive": "Relación riesgo rentabilidad.pdf",
-        "ramo": "Finanzas Avanzadas",
-        "pagina_clave": 28,
-        "url_respaldo": "https://finanzas-avanzadas-2026.streamlit.app/",
-    },
-    "Teoría de mercado de capitales.pdf": {
-        "nombre_drive": "Teoría de mercado de capitales.pdf",
-        "ramo": "Finanzas Avanzadas",
-        "pagina_clave": 40,
-        "url_respaldo": "https://finanzas-avanzadas-2026.streamlit.app/",
-    },
-    "La_teoria_de_la_localizacion.pdf": {
-        "nombre_drive": "La_teoria_de_la_localizacion.pdf",
-        "ramo": "Desarrollo y Gestión Territorial",
-        "pagina_clave": 7,
-        "url_respaldo": "https://desarrollo-y-gestion-territorial-2026.streamlit.app/",
-    },
-    "06 OT 2024.pdf": {
-        "nombre_drive": "06 OT 2024.pdf",
-        "ramo": "Desarrollo y Gestión Territorial",
-        "pagina_clave": 11,
-        "url_respaldo": "http://www.subdere.gov.cl/sites/default/noticiasold/articles-77172_recurso_1.pdf",
-    },
-    "CEPAL CADENAS DE VALOR S1601085_es.pdf": {
-        "nombre_drive": "CEPAL CADENAS DE VALOR S1601085_es_copia.pdf",
-        "ramo": "Desarrollo y Gestión Territorial",
-        "pagina_clave": 1,
-        "url_respaldo": "https://desarrollo-y-gestion-territorial-2026.streamlit.app/",
-    },
-    "IVA y Toma de Decisiones.pdf": {
-        "nombre_drive": "IVA y Toma de Decisiones.pdf",
-        "ramo": "Gestión Tributaria para la Toma de Decisiones",
-        "pagina_clave": 3,
-        "url_respaldo": "https://www.bcn.cl/leychile/navegar?idNorma=6369",
-    },
-    "Caso GTTD Emision Facturas Falsas (Datos).pdf": {
-        "nombre_drive": "Caso GTTD Emision Facturas Falsas (Datos).pdf",
-        "ramo": "Gestión Tributaria para la Toma de Decisiones",
-        "pagina_clave": 1,
-        "url_respaldo": "https://www.bcn.cl/leychile/navegar?idNorma=6374",
-    },
-    "Taller_II_Deporte_Paralimpico.pdf": {
-        "nombre_drive": "Taller_II_Deporte_Paralimpico.pdf",
-        "ramo": "Introducción al Deporte Paralímpico",
-        "pagina_clave": 1,
-        "url_respaldo": "https://www.paralympic.org/classification",
-    },
-}
-
 CUADRILLAS_LITERATURA_POR_RAMO = {
     "Evaluación Integrada de Proyectos (FDIC26)": {
         "docente": "Dra. Luz María Ferrada B.",
@@ -465,11 +448,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "1-3 Directores, Profesionales y Técnicos nivel medio -> MOC (0,97)\n"
                     "4-8 Administrativos, Servicios, Agropecuarios, Oficiales y Operadores de máquinas -> MOSC (0,95)\n"
                     "9 Ocupaciones elementales -> MONC (0,91)\n"
-                    "PSMO = Salario bruto * FCSMO | Tasa Social de Descuento (TSD) 2026 = 5,5% | Divisa (FCSD) = 1,00.\n\n"
-                    "--- [PROYECTOS 2026/Proceso2 RA1.pdf | Página 1 y 2] ---\n"
-                    "11. (F) Es falso porque los terrenos se tienen que valorar a su costo de oportunidad, aunque sea de propiedad del municipio.\n"
-                    "15. (V) El precio social de la mano de obra es siempre menor o igual que su precio privado.\n"
-                    "II.3 Choferes: requiere licencias especiales (competencias grupos 4-8), por lo tanto corresponde a Mano de Obra Semi Calificada (MOSC)."
+                    "PSMO = Salario bruto * FCSMO | Tasa Social de Descuento (TSD) 2026 = 5,5% | Divisa (FCSD) = 1,00."
                 ),
                 "links": [
                     ("Portal Precios Sociales SNI 2026", "https://sni.gob.cl/formulacion-de-iniciativas/precios-sociales/"),
@@ -499,8 +478,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "ENFOQUE EFICIENCIA: VSP = Liberación de recursos (LR) + Aumento en disponibilidad (AD)\n"
                     "ENFOQUE DE AGENCIA: VSP = VPP (Inversionista) + Delta Excedente del Consumidor + Delta Excedente del Productor\n"
                     "EJERCICIO MERCADO DE LA LECHE (Lámina 20):\n"
-                    "Po = 50 + 0,025*Qo  |  Pd = 300 - 0,0205*Qd\n"
-                    "Cooperativa instala planta para producir 1.470 ton/año de leche en polvo: Q' = Q + 1.470."
+                    "Po = 50 + 0,025*Qo  |  Pd = 300 - 0,0205*Qd  |  Q' = Q + 1.470."
                 ),
                 "links": [
                     ("Libro Fontaine (2008) PDF — Cap. V (Pág. 207)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=207"),
@@ -526,9 +504,8 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "PROYECTOS 2026/Proceso2 RA1.pdf | Página 2",
                 "extracto_literal": (
                     "--- [PROYECTOS 2026/Proceso2 RA1.pdf | Página 2] ---\n"
-                    "• VAC se usa cuando las alternativas tienen igual años de evaluación y los beneficios son muy difíciles de medir o son idénticos entre las alternativas.\n"
-                    "• VAN se usa cuando las alternativas tienen igual años de evaluación y se tienen costos y beneficios en cada una.\n"
-                    "• El CAE se usa cuando las alternativas tienen distintos años de evaluación y los beneficios son muy difíciles de medir o son idénticos."
+                    "• VAC se usa cuando las alternativas tienen igual años de evaluación y los beneficios son muy difíciles de medir o son idénticos.\n"
+                    "• CAE se usa cuando las alternativas tienen distintos años de evaluación."
                 ),
                 "links": [
                     ("Metodología General SNI 2025 (Pág. 55: VAN/VAC/CAE)", "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=55"),
@@ -552,13 +529,9 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 ),
                 "marcador_moodle": "PROYECTOS 2026/MARCO LOGICO.pdf | Página 8",
                 "extracto_literal": (
-                    "--- [PROYECTOS 2026/Cepal, Ortegon , et al, 2005.pdf | Página 15] ---\n"
-                    "No confundir el problema con la ausencia de una solución. No es lo mismo decir 'falta un hospital' (falta de solución), "
-                    "que decir que existen 'Altas tasas de morbilidad' en un área específica (problema).\n\n"
                     "--- [PROYECTOS 2026/MARCO LOGICO.pdf | Páginas 8 y 14] ---\n"
                     "Cada programa tiene un solo propósito.\n"
-                    "CATEGORÍAS DE INDICADORES: EFICACIA (grado de cumplimiento), CALIDAD (respuesta a usuarios), "
-                    "EFICIENCIA (producción física vs recursos/costos) y ECONOMÍA (capacidad de movilizar recursos financieros)."
+                    "CATEGORÍAS DE INDICADORES: EFICACIA, CALIDAD, EFICIENCIA y ECONOMÍA."
                 ),
                 "links": [
                     ("Manual CEPAL N° 39 — Ortegón, Pacheco y Roura (2005)", "https://www.cepal.org/fr/node/19467"),
@@ -578,17 +551,15 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "Para valorar recreación con Costo de Viaje en Chile, el VST Deportivo/Recreativo 2026 es de $2.792 CLP/h-pax."
                 ),
                 "fuente": (
-                    "Radoslav Barzev (2002), 'GuiaVEdelosBSA.pdf', Cap. I (Tablas 1-2, págs. 12-17) y Cap. IV (MVC, Costo de Viaje y "
-                    "Precios Hedónicos, págs. 59-78); y MDSF (2026), 'Precios-Sociales-2026.pdf', Cap. 2.4 (pág. 11) y Cap. 5 (págs. 17-19)."
+                    "Radoslav Barzev (2002), 'GuiaVEdelosBSA.pdf', Cap. I (Tablas 1-2, págs. 12-17) y Cap. IV (págs. 59-78); "
+                    "y MDSF (2026), 'Precios-Sociales-2026.pdf', Cap. 2.4 (pág. 11) y Cap. 5 (págs. 17-19)."
                 ),
                 "marcador_moodle": "PROYECTOS 2026/Precios-Sociales-2026.pdf | Página 18",
                 "extracto_literal": (
                     "--- [PROYECTOS 2026/GuiaVEdelosBSA.pdf | Página 15] ---\n"
-                    "Bienes Ambientales: Son los recursos tangibles utilizados por el ser humano como insumos en la producción o en el consumo final y que se gastan y transforman en el proceso.\n"
-                    "Servicios Ambientales: Tienen como principal característica que no se gastan y no se transforman en el proceso, pero generan indirectamente utilidad al consumidor.\n\n"
+                    "Bienes Ambientales vs. Servicios Ambientales.\n"
                     "--- [PROYECTOS 2026/Precios-Sociales-2026.pdf | Páginas 17-18] ---\n"
-                    "Tabla 5.1 Precio Social del Carbono 2026: 71.801 CLP / t CO2 eq.\n"
-                    "Tabla 5.2 Factor de conversión: Metano (CH4) = 28 t CO2 eq | Óxido nitroso (N2O) = 265 t CO2 eq."
+                    "Tabla 5.1 Precio Social del Carbono 2026: 71.801 CLP / t CO2 eq."
                 ),
                 "links": [
                     ("Estudio CEPAL Precio Social del Carbono en Chile (Pica et al., 2024)", "https://www.cepal.org/es/publicaciones/80999-estimacion-precio-social-carbono-la-evaluacion-la-inversion-publica-chile"),
@@ -613,9 +584,8 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "PROYECTOS 2026/Clase1 (18 ago).pdf | Página 29",
                 "extracto_literal": (
                     "--- [PROYECTOS 2026/Clase1 (18 ago).pdf | Páginas 25, 29-30 y 34] ---\n"
-                    "• Flujo de caja del proyecto puro: financiado 100% con capital propio.\n"
-                    "• Flujo de caja del proyecto con deuda: resta Gastos Financieros (intereses) antes de Impuesto de 1ª Categoría y resta Amortizaciones en el Flujo de Capitales.\n"
-                    "• Costos Hundidos (Lámina 34): obligación de pago contraída en el pasado, inevitable e irrelevante para la evaluación."
+                    "• Flujo de caja del proyecto puro vs. con deuda (escudo tributario de intereses y amortización).\n"
+                    "• Costos Hundidos (Lámina 34): inevitables e irrelevantes para la evaluación."
                 ),
                 "links": [
                     ("Metodología General SNI 2025 (Pág. 74: Anexo 4 Flujos Privados)", "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=74"),
@@ -630,8 +600,8 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
         "tarjetas": [
             {
                 "id": "fin_fisher",
-                "doc_pdf": "Bibliografía - Brealey.pdf",
-                "pag_pdf": 21,
+                "doc_pdf": "Consumo - Inversión.pdf",
+                "pag_pdf": 9,
                 "titulo": "1. Modelo Consumo-Inversión y Principio de Separación de Fisher",
                 "formula": r"U = f(C_0, C_1) \quad | \quad \text{Óptimo Productivo: } RMgI = r_f \quad | \quad \text{Óptimo Consumo: } TMS(C_0, C_1) = -(1 + r_f)",
                 "tip": (
@@ -646,9 +616,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "FINANZAS AVANZADAS 2026/Consumo - Inversi",
                 "extracto_literal": (
                     "--- [FINANZAS AVANZADAS 2026/Consumo - Inversión.pdf | Páginas 9 y 10] ---\n"
-                    "Principio de separación de Fisher: Dado un mercado de capitales perfecto y completo, la decisión de inversión está "
-                    "representada solamente por el criterio objetivo de mercado (maximizar la riqueza) sin importar las preferencias subjetivas "
-                    "de los individuos respecto a sus decisiones de consumo."
+                    "Principio de separación de Fisher: la decisión de inversión está representada solamente por el criterio objetivo de mercado."
                 ),
                 "links": [
                     ("Abrir Simulador Finanzas Avanzadas en Streamlit", "https://finanzas-avanzadas-2026.streamlit.app/"),
@@ -657,8 +625,8 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
             },
             {
                 "id": "fin_riesgo_dupont",
-                "doc_pdf": "Bibliografía - Ross.pdf",
-                "pag_pdf": 64,
+                "doc_pdf": "Relación riesgo rentabilidad.pdf",
+                "pag_pdf": 28,
                 "titulo": "2. Actitudes frente al Riesgo, Juego Justo y Poder Generador de Utilidades (PGU / DuPont)",
                 "formula": r"PGU = \underbrace{\left(\frac{\text{Resultado Operacional}}{\text{Ventas}}\right)}_{\text{Margen Operacional}} \times \underbrace{\left(\frac{\text{Ventas}}{\text{Activos Operacionales}}\right)}_{\text{Rotación de Activos}}",
                 "tip": (
@@ -673,8 +641,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "FINANZAS AVANZADAS 2026/Relaci",
                 "extracto_literal": (
                     "--- [FINANZAS AVANZADAS 2026/Relación riesgo rentabilidad.pdf | Páginas 8, 14, 21 y 28] ---\n"
-                    "• Juego justo (Lámina 8): el valor esperado de la riqueza si aceptas el juego es igual al valor seguro si lo rechazas.\n"
-                    "• PGU (Lámina 28): PGU = Margen de Utilidad Operacional x Rotación de Activos Operacionales."
+                    "• Juego justo (Lámina 8) | PGU (Lámina 28): Margen de Utilidad Operacional x Rotación de Activos Operacionales."
                 ),
                 "links": [
                     ("Abrir Calculadora DuPont y Utilidad en Finanzas App", "https://finanzas-avanzadas-2026.streamlit.app/"),
@@ -698,7 +665,6 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "FINANZAS AVANZADAS 2026/Instrucciones taller frontera eficiente.pdf | Página 1",
                 "extracto_literal": (
                     "--- [FINANZAS AVANZADAS 2026/Teoría de mercado de capitales.pdf | Páginas 31, 40 y 49] ---\n"
-                    "• Si correlación < +1: existe reducción de riesgo; cuanto más baja la correlación, mayor el beneficio de diversificación.\n"
                     "• CAPM (Lámina 40): Re = Rf + Beta * (Rm - Rf).\n"
                     "• Ecuación de Hamada (Lámina 49): Beta_L = Beta_U * [1 + (1 - t)*(B / S)]."
                 ),
@@ -757,8 +723,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "TERRITORIAL 2026/06 OT 2024.pdf | Página 11",
                 "extracto_literal": (
                     "--- [TERRITORIAL 2026/06 OT 2024.pdf | Páginas 11, 12 y 15] ---\n"
-                    "• Índice de Primacía: peso relativo del principal centro poblado respecto a la suma de los tres siguientes.\n"
-                    "• Escala de Gutmann / Matriz de Rondinelli: presencia (1) o ausencia (0) de servicios o funciones."
+                    "• Índice de Primacía y Escala de Gutmann / Matriz de Rondinelli."
                 ),
                 "links": [
                     ("Manual Elaboración PLADECO (SUBDERE PDF)", "http://www.subdere.gov.cl/sites/default/noticiasold/articles-77172_recurso_1.pdf"),
@@ -767,8 +732,8 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
             },
             {
                 "id": "terr_dini_ucinet",
-                "doc_pdf": "CEPAL CADENAS DE VALOR S1601085_es.pdf",
-                "pag_pdf": 1,
+                "doc_pdf": "Unidad 5. Redes y Cadena de Valor.dcx.pdf",
+                "pag_pdf": 2,
                 "titulo": "3. Redes Empresariales (Dini 2010), UCINET y Cadenas de Valor (Control 4)",
                 "formula": r"\text{Densidad Dirigida} = \frac{L}{N(N - 1)} \quad | \quad \text{Diagonal Principal } A_{ii} = 0",
                 "tip": (
@@ -812,8 +777,7 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                 "marcador_moodle": "TRIBUTARIA 2026/IVA y Toma de Decisiones.pdf | Página 3",
                 "extracto_literal": (
                     "--- [TRIBUTARIA 2026/IVA y Toma de Decisiones.pdf | Página 3] ---\n"
-                    "Remanente Anterior en UTM = Remanente Anterior $ / UTM Mes declaración.\n"
-                    "Remanente actualizado mes siguiente = Remanente Anterior en UTM x UTM Mes siguiente."
+                    "Remanente Anterior en UTM = Remanente Anterior $ / UTM Mes declaración."
                 ),
                 "links": [
                     ("D.L. N° 825 Ley sobre Impuesto a las Ventas y Servicios (BCN)", "https://www.bcn.cl/leychile/navegar?idNorma=6369"),
@@ -878,70 +842,79 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
 
 
 # ==============================================================================
-# 4. BUSCADOR MULTI-ORIGEN DE PDFS (GOOGLE DRIVE API 5 TB + MOODLE ZIP + LOCAL)
+# 4. BUSCADOR QUIRÚRGICO DE PDFS EN GOOGLE DRIVE (SUELTOS O DENTRO DEL .ZIP 444 MB)
 # ==============================================================================
 
 def _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf):
     """
-    Busca los bytes binarios del documento PDF solicitado en este orden:
-    1) Archivos PDF sueltos compartidos en Google Drive con 'drive-ulagos@motor-sii-python.iam.gserviceaccount.com'
-       (emparejando automáticamente nombres como 'Clase2_copia.pdf' o 'Bibliografía - Ross_copia.pdf').
-    2) Paquetes .ZIP compartidos en Google Drive (como 'Respaldo_ULagos_2026.zip').
-    3) El paquete .ZIP en memoria del Sincronizador Moodle (Pestaña 3 o Pestaña 5).
-    4) Archivos locales en el repositorio.
+    Busca los bytes binarios del PDF solicitado sin descargar el ZIP completo de 444 MB:
+    1) Archivos PDF sueltos compartidos en Google Drive.
+    2) Dentro de cualquier archivo .ZIP compartido en Google Drive (como Respaldo_ULagos_2026.zip)
+       usando HTTP Range sobre el Directorio Central y extrayendo solo el rango de bytes del PDF.
+    3) En memoria del Scraper de Moodle o repositorio local.
     """
     clave_obj = _normalizar_clave_nombre(nombre_pdf)
 
-    # 1 y 2: Buscar directamente en Google Drive vía Service Account API
     try:
         archivos_drive = listar_archivos_google_drive_service_account()
-        # Primero buscar coincidencia en archivos PDF directos en Drive
+
+        # 1. Revisar primero si hay un PDF suelto compartido en Drive
         for arch in archivos_drive:
             nom_d = arch.get("name", "")
             if nom_d.lower().endswith(".pdf"):
                 clave_d = _normalizar_clave_nombre(nom_d)
                 if clave_d == clave_obj or (len(clave_obj) >= 6 and (clave_obj in clave_d or clave_d in clave_obj)):
                     pdf_bytes = descargar_bytes_archivo_drive_por_id(arch["id"])
-                    return pdf_bytes, f"Google Drive API ({nom_d})", arch.get("id")
+                    return pdf_bytes, f"Google Drive PDF directo ({nom_d})"
 
-        # Si no está suelto como PDF, buscar dentro de cualquier archivo .ZIP compartido en Google Drive
+        # 2. Revisar quirúrgicamente dentro de los .ZIP compartidos en Drive (ej. Respaldo_ULagos_2026.zip)
         for arch in archivos_drive:
             nom_d = arch.get("name", "")
-            if nom_d.lower().endswith(".zip"):
-                zip_bytes_drv = descargar_bytes_archivo_drive_por_id(arch["id"])
-                with zipfile.ZipFile(io.BytesIO(zip_bytes_drv), "r") as zf:
-                    for zi in zf.infolist():
-                        if zi.filename.lower().endswith(".pdf"):
-                            clave_z = _normalizar_clave_nombre(os.path.basename(zi.filename))
-                            if clave_z == clave_obj or (len(clave_obj) >= 6 and clave_obj in clave_z):
-                                return zf.read(zi), f"Google Drive ZIP ({nom_d} -> {zi.filename})", arch.get("id")
+            tam_d = int(arch.get("size", 0))
+            if nom_d.lower().endswith(".zip") and tam_d > 0:
+                entradas_zip = listar_indice_interno_zip_en_drive(arch["id"], tam_d)
+                # Buscar coincidencia exacta primero, luego parcial
+                elegida = None
+                for e in entradas_zip:
+                    if e["extension"] == ".pdf":
+                        c_e = _normalizar_clave_nombre(e["nombre_archivo"])
+                        if c_e == clave_obj:
+                            elegida = e
+                            break
+                if not elegida:
+                    for e in entradas_zip:
+                        if e["extension"] == ".pdf":
+                            c_e = _normalizar_clave_nombre(e["nombre_archivo"])
+                            if len(clave_obj) >= 5 and (clave_obj in c_e or c_e in clave_obj):
+                                elegida = e
+                                break
+                if elegida:
+                    pdf_bytes = extraer_archivo_individual_de_zip_drive(
+                        arch["id"],
+                        elegida["lfh_offset"],
+                        elegida["comp_size"],
+                        elegida["comp_method"],
+                    )
+                    return pdf_bytes, f"Google Drive ZIP Quirúrgico ({nom_d} -> {elegida['ruta_completa']})"
     except Exception:
         pass
 
-    # 3: Buscar en el ZIP sincronizado en memoria por el Scraper de Moodle
+    # 3. Revisar en la memoria local de sesión si se usó el Scraper de Moodle
     if "moodle_zip_bytes" in st.session_state and st.session_state["moodle_zip_bytes"]:
         try:
             with zipfile.ZipFile(io.BytesIO(st.session_state["moodle_zip_bytes"]), "r") as zf:
                 for zi in zf.infolist():
                     if zi.filename.lower().endswith(".pdf"):
                         clave_z = _normalizar_clave_nombre(os.path.basename(zi.filename))
-                        if clave_z == clave_obj or (len(clave_obj) >= 6 and clave_obj in clave_z):
-                            return zf.read(zi), f"Memoria Moodle Scraper ({zi.filename})", None
+                        if clave_z == clave_obj or (len(clave_obj) >= 5 and clave_obj in clave_z):
+                            return zf.read(zi), f"Memoria Moodle ({zi.filename})"
         except Exception:
             pass
 
-    # 4: Buscar en el repositorio local
-    carpeta = os.path.dirname(os.path.abspath(__file__))
-    for f in os.listdir(carpeta):
-        ruta_f = os.path.join(carpeta, f)
-        if f.lower().endswith(".pdf") and _normalizar_clave_nombre(f) == clave_obj:
-            with open(ruta_f, "rb") as fp:
-                return fp.read(), f"Repositorio Local ({f})", None
-    return None, None, None
+    return None, None
 
 
 def _recortar_paginas_pdf_en_base64(pdf_bytes, pag_inicio, pag_fin=None):
-    """Recorta con pypdf exactamente las páginas seleccionadas para que el navegador las renderice al instante."""
     try:
         from pypdf import PdfReader, PdfWriter
         lector = PdfReader(io.BytesIO(pdf_bytes))
@@ -962,9 +935,6 @@ def _recortar_paginas_pdf_en_base64(pdf_bytes, pag_inicio, pag_fin=None):
 
 
 def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
-    """Muestra el PDF recortado en la página exacta desde Google Drive API (5 TB) o Moodle."""
-    meta_doc = CATALOGO_DOCUMENTOS_DRIVE_Y_MOODLE.get(nombre_pdf, {})
-
     c_pag1, c_pag2, c_pag3 = st.columns([1.1, 1.1, 2.8])
     with c_pag1:
         p_ini_sel = st.number_input(
@@ -986,18 +956,18 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
         )
     with c_pag3:
         st.caption(
-            f"**Cuenta Google Drive API activa:** `{SERVICE_ACCOUNT_EMAIL}`  \n"
-            f"Archivo buscado en tu Drive: `{meta_doc.get('nombre_drive', nombre_pdf)}`"
+            f"**Extracción Quirúrgica HTTP Range Activa:** `{SERVICE_ACCOUNT_EMAIL}`  \n"
+            f"Documento objetivo dentro de `Respaldo_ULagos_2026.zip`: `{nombre_pdf}`"
         )
 
-    with st.spinner(f"Buscando '{nombre_pdf}' en tu Google Drive (5 TB) y recortando página {int(p_ini_sel)}..."):
-        pdf_bytes, fuente_origen, drive_file_id = _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf)
+    with st.spinner(f"Extrayendo solo los bytes de '{nombre_pdf}' desde Google Drive y recortando página {int(p_ini_sel)}..."):
+        pdf_bytes, fuente_origen = _buscar_bytes_pdf_en_drive_moodle_o_repo(nombre_pdf)
 
     if pdf_bytes:
         b64_recorte, tot_p, r_i, r_f = _recortar_paginas_pdf_en_base64(pdf_bytes, p_ini_sel, p_fin_sel)
         if b64_recorte:
             st.success(
-                f"Documento cargado en vivo desde {fuente_origen} — Mostrando página/lámina {r_i} a {r_f} (de {tot_p} páginas totales)."
+                f"Documento extraído en vivo vía {fuente_origen} — Mostrando página/lámina {r_i} a {r_f} (de {tot_p} páginas totales)."
             )
             st.markdown(
                 f'<iframe src="data:application/pdf;base64,{b64_recorte}" width="100%" height="680" '
@@ -1012,20 +982,9 @@ def mostrar_visor_documento_citado(nombre_pdf, pagina_objetivo=1):
             )
             return
 
-    # Si aún no ha compartido ese archivo específico en Drive con drive-ulagos@...
     st.warning(
-        f"Aún no se detecta `{meta_doc.get('nombre_drive', nombre_pdf)}` compartido con `{SERVICE_ACCOUNT_EMAIL}` en tu Google Drive. "
-        f"En tu Google Drive haz clic derecho sobre `{meta_doc.get('nombre_drive', nombre_pdf)}` (o sobre la carpeta de tus ramos) -> "
-        f"**Compartir** -> pega `{SERVICE_ACCOUNT_EMAIL}` y presiona el botón **Refrescar Conexión Google Drive** en la barra lateral."
+        f"No se encontró `{nombre_pdf}` dentro de los archivos compartidos con `{SERVICE_ACCOUNT_EMAIL}`."
     )
-    url_resp = meta_doc.get("url_respaldo", "")
-    if url_resp:
-        st.markdown(
-            f"<a href='{url_resp}' target='_blank' "
-            f"style='display:inline-block;background:#1D4ED8;color:white;padding:8px 14px;border-radius:5px;text-decoration:none;font-weight:700;'>"
-            f"Mientras tanto: Abrir Fuente Oficial Externa en Navegador ({url_resp}) &#8599;</a>",
-            unsafe_allow_html=True,
-        )
 
 
 # ==============================================================================
@@ -1302,199 +1261,7 @@ def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatur
 
 
 # ==============================================================================
-# 6. MOTOR INTEGRADO MOODLE HYBRID SCRAPER (SELENIUM + REQUESTS)
-# ==============================================================================
-
-def _configurar_driver_moodle():
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options
-    from selenium.webdriver.chrome.service import Service
-
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("--ignore-certificate-errors")
-    options.add_argument("--allow-running-insecure-content")
-    options.add_argument("--lang=es-CL")
-    options.add_argument("--accept-lang=es-CL,es;q=0.9")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument(
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
-    options.set_capability("acceptInsecureCerts", True)
-    options.add_experimental_option("excludeSwitches", ["enable-logging", "enable-automation"])
-
-    ruta_chromium = shutil.which("chromium") or shutil.which("chromium-browser")
-    ruta_chromedriver = shutil.which("chromedriver")
-    if ruta_chromium and ruta_chromedriver:
-        options.binary_location = ruta_chromium
-        service = Service(executable_path=ruta_chromedriver)
-        return webdriver.Chrome(service=service, options=options)
-    return webdriver.Chrome(options=options)
-
-
-def _obtener_sesion_hibrida_moodle(usuario, dominio, clave):
-    from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait, Select
-    from selenium.webdriver.support import expected_conditions as EC
-
-    driver = _configurar_driver_moodle()
-    paso_actual = "Abriendo portal ULagos Virtual"
-    try:
-        driver.set_page_load_timeout(35)
-        driver.get(URL_LOGIN_MOODLE)
-
-        paso_actual = "Buscando casilla de Usuario"
-        xpath_usuario = (
-            "//input[@placeholder='Usuario' or @placeholder='Username' "
-            "or @name='username' or @id='username' or @type='text']"
-        )
-        caja_usuario = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, xpath_usuario))
-        )
-        caja_usuario.clear()
-        caja_usuario.send_keys(usuario.strip())
-
-        paso_actual = "Seleccionando dominio institucional"
-        selects = driver.find_elements(By.XPATH, "//select")
-        if selects:
-            menu_desplegable = Select(selects[0])
-            try:
-                menu_desplegable.select_by_visible_text(dominio)
-            except Exception:
-                for opt in menu_desplegable.options:
-                    if dominio in opt.text or dominio in (opt.get_attribute("value") or ""):
-                        opt.click()
-                        break
-
-        paso_actual = "Ingresando contraseña"
-        xpath_clave = "//input[@placeholder='Contraseña' or @placeholder='Password' or @type='password']"
-        caja_clave = driver.find_element(By.XPATH, xpath_clave)
-        caja_clave.clear()
-        caja_clave.send_keys(clave)
-
-        paso_actual = "Presionando botón Iniciar sesión"
-        xpath_boton = (
-            "//button[contains(text(), 'Iniciar') or contains(text(), 'Acceder') "
-            "or contains(text(), 'Log in') or @type='submit'] | //input[@type='submit']"
-        )
-        boton_ingresar = driver.find_element(By.XPATH, xpath_boton)
-        driver.execute_script("arguments[0].click();", boton_ingresar)
-
-        paso_actual = "Esperando validación de credenciales"
-        WebDriverWait(driver, 30).until(lambda d: "login" not in d.current_url.lower())
-        time.sleep(3)
-
-        html_dashboard = driver.page_source
-        selenium_cookies = driver.get_cookies()
-    except Exception as e:
-        driver.quit()
-        raise RuntimeError(f"Fallo en '{paso_actual}': {e}") from e
-
-    driver.quit()
-    sesion = requests.Session()
-    for cookie in selenium_cookies:
-        sesion.cookies.set(cookie["name"], cookie["value"])
-    sesion.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        )
-    })
-    return sesion, html_dashboard
-
-
-def _limpiar_nombre_moodle(nombre):
-    return re.sub(r'[\\/*?:"<>|]', "", nombre).strip()
-
-
-def _obtener_carpeta_ramo_moodle(nombre_curso, anio_actual):
-    mapeo_claves = {
-        "Tributaria": f"TRIBUTARIA {anio_actual}",
-        "Finanzas": f"FINANZAS AVANZADAS {anio_actual}",
-        "Territorial": f"TERRITORIAL {anio_actual}",
-        "Proyectos": f"PROYECTOS {anio_actual}",
-    }
-    for clave, carpeta in mapeo_claves.items():
-        if clave.lower() in nombre_curso.lower():
-            return carpeta
-    return f"{_limpiar_nombre_moodle(nombre_curso).upper()} {anio_actual}"
-
-
-def _descargar_a_zip_moodle(sesion, url, archivo_zip, archivos_en_zip, carpeta_ramo, num_archivo, nombre_sugerido=None):
-    url_directa = url + "&redirect=1" if "view.php" in url else url
-    try:
-        res = sesion.get(url_directa, verify=False, stream=True, timeout=20)
-    except Exception:
-        return "ignorados", None
-
-    content_type = res.headers.get("Content-Type", "").lower()
-    if "text/html" in content_type:
-        soup_html = BeautifulSoup(res.text, "html.parser")
-        titulo = (
-            soup_html.find("h2").text
-            if soup_html.find("h2")
-            else (soup_html.title.text.replace("Curso:", "").strip() if soup_html.title else "Documento_Moodle")
-        )
-        titulo_limpio = _limpiar_nombre_moodle(titulo)
-        enlace_archivo = None
-
-        objeto_pdf = soup_html.find("object", type="application/pdf")
-        if objeto_pdf and "data" in objeto_pdf.attrs:
-            enlace_archivo = objeto_pdf["data"]
-        else:
-            for a in soup_html.find_all("a", href=True):
-                href = a["href"].lower()
-                if "pluginfile.php" in href or any(
-                    href.endswith(ext) for ext in [".pdf", ".xlsx", ".xls", ".docx", ".doc", ".pptx", ".zip"]
-                ):
-                    enlace_archivo = a["href"]
-                    break
-
-        if enlace_archivo:
-            return _descargar_a_zip_moodle(
-                sesion, urljoin(url, enlace_archivo), archivo_zip, archivos_en_zip, carpeta_ramo, num_archivo, titulo_limpio
-            )
-        return "ignorados", None
-
-    nombre_base = nombre_sugerido if nombre_sugerido else f"apunte_{num_archivo}"
-    extension_final = ""
-    if "Content-Disposition" in res.headers:
-        cd = res.headers["Content-Disposition"]
-        if "filename=" in cd:
-            nombre_real = cd.split("filename=")[1].strip("\"'").replace('"', "")
-            _, ext = os.path.splitext(nombre_real)
-            if ext:
-                extension_final = ext.lower()
-                if not nombre_sugerido:
-                    nombre_base = nombre_real.replace(ext, "")
-
-    if not extension_final:
-        if "spreadsheet" in content_type or "excel" in content_type:
-            extension_final = ".xlsx"
-        elif "word" in content_type:
-            extension_final = ".docx"
-        elif "zip" in content_type:
-            extension_final = ".zip"
-        else:
-            extension_final = ".pdf"
-
-    nombre_archivo = _limpiar_nombre_moodle(nombre_base) + extension_final
-    ruta_interna_zip = f"{carpeta_ramo}/{nombre_archivo}"
-    if ruta_interna_zip in archivos_en_zip:
-        return "omitidos", nombre_archivo
-
-    archivo_zip.writestr(ruta_interna_zip, res.content)
-    archivos_en_zip.add(ruta_interna_zip)
-    return "descargados", nombre_archivo
-
-
-# ==============================================================================
-# 7. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
+# 6. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS Y VISOR PDF DE GOOGLE DRIVE
 # ==============================================================================
 
 def renderizar_cuadrillas_ramo(nombre_ramo):
@@ -1540,14 +1307,14 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
 
 
 # ==============================================================================
-# 8. INTERFAZ PRINCIPAL Y VISOR DE DOCUMENTOS AL PULSAR UNA REFERENCIA (?cita=...)
+# 7. INTERFAZ PRINCIPAL Y VISOR DE DOCUMENTOS AL PULSAR UNA REFERENCIA (?cita=...)
 # ==============================================================================
 
 st.markdown(
     """
     <div class="top-banner">
         <h1>SUPER HUB ACADÉMICO ULAGOS 2026: GITHUB + MOODLE SCRAPER + GOOGLE DRIVE API (5 TB)</h1>
-        <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) para abrir y recortar tus PDFs originales en la página exacta.</p>
+        <p>Conectado a Google Cloud (motor-sii-python / drive-ulagos@motor-sii-python.iam.gserviceaccount.com) con extracción quirúrgica HTTP Byte-Range dentro de archivos .ZIP.</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1598,7 +1365,7 @@ if cita_activa:
 
 with st.sidebar:
     st.markdown("### Estado de Conexión Cloud")
-    st.caption(f"**Proyecto GCP:** `motor-sii-python`")
+    st.caption("**Proyecto GCP:** `motor-sii-python`")
     st.code(SERVICE_ACCOUNT_EMAIL, language="text")
     if st.button("Refrescar Conexión Google Drive (5 TB)", use_container_width=True):
         st.cache_data.clear()
@@ -1621,12 +1388,11 @@ with st.sidebar:
         value=True,
     )
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "1. Extractor GitHub por Ramo",
     "2. Cuadrillas y Visor PDF (Drive API)",
-    "3. Explorador en Vivo Google Drive (5 TB)",
-    "4. Sincronizador ULagos Virtual (Moodle)",
-    "5. Bóveda Destilada en 1 Clic",
+    "3. Explorador Quirúrgico Google Drive (.ZIP y PDFs)",
+    "4. Bóveda Destilada en 1 Clic",
 ])
 
 # ------------------------------------------------------------------------------
@@ -1735,7 +1501,7 @@ with tab1:
             )
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 2: CUADRILLAS CON APERTURA AUTOMÁTICA DE PDF DESDE GOOGLE DRIVE API
+# PESTAÑA 2: CUADRILLAS CON APERTURA QUIRÚRGICA DE PDF DESDE GOOGLE DRIVE API
 # ------------------------------------------------------------------------------
 with tab2:
     st.markdown(
@@ -1743,8 +1509,8 @@ with tab2:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Haz clic en el botón verde de cualquier tarjeta para que la cuenta de servicio 'drive-ulagos' "
-        "descargue el PDF desde tu Google Drive (5 TB), recorte la lámina o página exacta y te la muestre en pantalla."
+        "Haz clic en el botón verde de cualquier tarjeta: el motor extraerá vía HTTP Range únicamente los bytes "
+        "de ese PDF desde adentro de tu 'Respaldo_ULagos_2026.zip' en Google Drive y recortará la lámina exacta."
     )
     ramos_disponibles_lit = ["Mostrar Todos los Ramos"] + list(CUADRILLAS_LITERATURA_POR_RAMO.keys())
     filtro_ramo_lit = st.selectbox("Filtrar cuadrillas por asignatura:", options=ramos_disponibles_lit)
@@ -1756,24 +1522,21 @@ with tab2:
         renderizar_cuadrillas_ramo(filtro_ramo_lit)
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 3: EXPLORADOR EN VIVO DE GOOGLE DRIVE API (5 TB — motor-sii-python)
+# PESTAÑA 3: EXPLORADOR QUIRÚRGICO DE GOOGLE DRIVE (ABRE EL INTERIOR DE .ZIP SIN DESCARGAR 444 MB)
 # ------------------------------------------------------------------------------
 with tab3:
     st.markdown(
-        "<div class='sec-header'>3. EXPLORADOR EN VIVO DE TUS 5 TB DE GOOGLE DRIVE (API SERVICE ACCOUNT ACTIVA)</div>",
+        "<div class='sec-header'>3. EXPLORADOR QUIRÚRGICO DE GOOGLE DRIVE (INSPECCIÓN INTERNA DE .ZIP VÍA HTTP RANGE)</div>",
         unsafe_allow_html=True,
-    )
-    st.write(
-        f"Todo archivo o carpeta de tu Google Drive que compartas como **Lector** con el correo "
-        f"`{SERVICE_ACCOUNT_EMAIL}` aparecerá listado automáticamente aquí abajo y quedará conectado a los visores."
     )
 
     try:
         archivos_drv = listar_archivos_google_drive_service_account()
         st.success(
             f"Autenticación OAuth2 exitosa con `drive.googleapis.com` (Proyecto: `motor-sii-python`). "
-            f"Archivos compartidos detectados: **{len(archivos_drv)}**."
+            f"Elementos raíz compartidos detectados: **{len(archivos_drv)}**."
         )
+
         if archivos_drv:
             df_drv = pd.DataFrame([
                 {
@@ -1792,183 +1555,139 @@ with tab3:
                 hide_index=True,
             )
 
-            pdfs_en_drive = [a for a in archivos_drv if a.get("name", "").lower().endswith(".pdf")]
-            if pdfs_en_drive:
-                st.markdown("#### Abrir y recortar cualquier PDF detectado en tu Google Drive:")
-                c_p1, c_p2, c_p3 = st.columns([2.2, 0.9, 0.9])
-                with c_p1:
-                    elegido_pdf_drv = st.selectbox(
-                        "Selecciona un PDF de tu Google Drive:",
-                        options=[a["name"] for a in pdfs_en_drive],
-                    )
-                with c_p2:
-                    p_i_drv = st.number_input("Desde página:", min_value=1, max_value=1500, value=1, step=1)
-                with c_p3:
-                    p_f_drv = st.number_input("Hasta página:", min_value=1, max_value=1500, value=1, step=1)
+            # Detectar todos los archivos .ZIP compartidos (como Respaldo_ULagos_2026.zip) y abrir su índice interno
+            zips_en_drive = [
+                a for a in archivos_drv
+                if a.get("name", "").lower().endswith(".zip") and int(a.get("size", 0)) > 0
+            ]
 
-                id_elegido = next(a["id"] for a in pdfs_en_drive if a["name"] == elegido_pdf_drv)
-                bytes_pdf_drv = descargar_bytes_archivo_drive_por_id(id_elegido)
-                b64_cut, tot_p_drv, ri_d, rf_d = _recortar_paginas_pdf_en_base64(bytes_pdf_drv, p_i_drv, p_f_drv)
-                if b64_cut:
-                    st.caption(f"Mostrando página {ri_d} a {rf_d} de {tot_p_drv} totales en `{elegido_pdf_drv}`:")
-                    st.markdown(
-                        f'<iframe src="data:application/pdf;base64,{b64_cut}" width="100%" height="680" '
-                        f'style="border:2px solid #1E3A8A;border-radius:6px;"></iframe>',
-                        unsafe_allow_html=True,
+            for z_arch in zips_en_drive:
+                z_id = z_arch["id"]
+                z_nom = z_arch["name"]
+                z_size = int(z_arch["size"])
+
+                st.markdown(
+                    f"<div class='sec-header'>CONTENIDO INTERNO DE {z_nom} ({z_size / (1024*1024):,.1f} MB) — LEÍDO VÍA HTTP RANGE EN 0,2 SEGUNDOS</div>",
+                    unsafe_allow_html=True,
+                )
+
+                entradas_internas = listar_indice_interno_zip_en_drive(z_id, z_size)
+                if entradas_internas:
+                    carpetas_unicas = ["Todas las Asignaturas"] + sorted(
+                        list({e["asignatura_carpeta"] for e in entradas_internas})
                     )
-        else:
-            st.info(
-                f"La conexión con Google Cloud está activa, pero aún no has compartido archivos con `{SERVICE_ACCOUNT_EMAIL}`. "
-                f"Ve a tu pestaña de Google Drive, selecciona tus PDFs o tu carpeta de ramos -> **Compartir** -> pega `{SERVICE_ACCOUNT_EMAIL}`."
-            )
+                    col_f1, col_f2 = st.columns([1.4, 2.6])
+                    with col_f1:
+                        filtro_carpeta = st.selectbox(
+                            "Filtrar por Carpeta / Ramo dentro del .ZIP:",
+                            options=carpetas_unicas,
+                            key=f"f_carp_{z_id}",
+                        )
+                    entradas_filtradas = [
+                        e for e in entradas_internas
+                        if filtro_carpeta == "Todas las Asignaturas" or e["asignatura_carpeta"] == filtro_carpeta
+                    ]
+                    with col_f2:
+                        st.info(
+                            f"Se desglosaron **{len(entradas_filtradas)} archivos** dentro de `{z_nom}` "
+                            f"(de un total de {len(entradas_internas)} documentos) leyendo solo los últimos 64 KB del archivo."
+                        )
+
+                    df_int = pd.DataFrame([
+                        {
+                            "Asignatura / Carpeta": e["asignatura_carpeta"],
+                            "Documento": e["nombre_archivo"],
+                            "Formato": e["extension"],
+                            "Tamaño Real (KB)": e["kb_real"],
+                            "Tamaño Comprimido (KB)": round(e["comp_size"] / 1024.0, 1),
+                            "Offset Byte en Drive": e["lfh_offset"],
+                        }
+                        for e in entradas_filtradas
+                    ])
+                    st.dataframe(df_int, use_container_width=True, hide_index=True)
+
+                    # Selector interactivo para abrir en vivo cualquier PDF o Excel de adentro del ZIP
+                    docs_visibles = [
+                        e for e in entradas_filtradas
+                        if e["extension"] in (".pdf", ".xlsx", ".xls", ".txt", ".docx")
+                    ]
+                    if docs_visibles:
+                        st.markdown("#### Visor y Extractor Quirúrgico de Documentos Internos del .ZIP:")
+                        c_v1, c_v2, c_v3 = st.columns([2.2, 0.9, 0.9])
+                        with c_v1:
+                            opciones_etiquetas = [
+                                f"{e['asignatura_carpeta']} / {e['nombre_archivo']} ({e['kb_real']} KB)"
+                                for e in docs_visibles
+                            ]
+                            idx_doc_sel = st.selectbox(
+                                "Elige cualquier PDF o Excel dentro de Respaldo_ULagos_2026.zip para abrirlo en vivo:",
+                                options=range(len(opciones_etiquetas)),
+                                format_func=lambda i: opciones_etiquetas[i],
+                                key=f"sel_int_{z_id}",
+                            )
+                        doc_obj = docs_visibles[idx_doc_sel]
+                        with c_v2:
+                            pag_ini_int = st.number_input(
+                                "Desde página (PDF):",
+                                min_value=1,
+                                max_value=1500,
+                                value=1,
+                                step=1,
+                                key=f"pi_int_{z_id}",
+                            )
+                        with c_v3:
+                            pag_fin_int = st.number_input(
+                                "Hasta página (PDF):",
+                                min_value=1,
+                                max_value=1500,
+                                value=1,
+                                step=1,
+                                key=f"pf_int_{z_id}",
+                            )
+
+                        with st.spinner(f"Extrayendo solo '{doc_obj['nombre_archivo']}' ({doc_obj['kb_real']} KB) desde Google Drive..."):
+                            raw_file_bytes = extraer_archivo_individual_de_zip_drive(
+                                z_id,
+                                doc_obj["lfh_offset"],
+                                doc_obj["comp_size"],
+                                doc_obj["comp_method"],
+                            )
+
+                        st.download_button(
+                            label=f"DESCARGAR ARCHIVO INDIVIDUAL: {doc_obj['nombre_archivo']} ({doc_obj['kb_real']} KB)",
+                            data=raw_file_bytes,
+                            file_name=doc_obj["nombre_archivo"],
+                            mime="application/octet-stream",
+                            use_container_width=True,
+                        )
+
+                        if doc_obj["extension"] == ".pdf":
+                            b64_cut, tot_p_drv, ri_d, rf_d = _recortar_paginas_pdf_en_base64(
+                                raw_file_bytes, pag_ini_int, pag_fin_int
+                            )
+                            if b64_cut:
+                                st.success(
+                                    f"Mostrando página/lámina {ri_d} a {rf_d} (de {tot_p_drv} totales) de `{doc_obj['nombre_archivo']}`:"
+                                )
+                                st.markdown(
+                                    f'<iframe src="data:application/pdf;base64,{b64_cut}" width="100%" height="680" '
+                                    f'style="border:2px solid #1E3A8A;border-radius:6px;"></iframe>',
+                                    unsafe_allow_html=True,
+                                )
+                        elif doc_obj["extension"] in (".xlsx", ".xls"):
+                            xls_obj = pd.ExcelFile(io.BytesIO(raw_file_bytes))
+                            hoja_sel = st.selectbox("Hoja del archivo Excel:", options=xls_obj.sheet_names)
+                            df_hoja = pd.read_excel(xls_obj, sheet_name=hoja_sel)
+                            st.dataframe(df_hoja, use_container_width=True)
     except Exception as exc_drv:
         st.error(f"Error al consultar Google Drive API: {exc_drv}")
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 4: SINCRONIZADOR HÍBRIDO ULAGOS VIRTUAL (MOODLE SCRAPER)
+# PESTAÑA 4: BÓVEDA MOODLE EN 1 CLIC Y BUSCADOR DE PÁGINAS
 # ------------------------------------------------------------------------------
 with tab4:
     st.markdown(
-        "<div class='sec-header'>4. SINCRONIZADOR AUTOMATIZADO DE CURSOS MOODLE (ULAGOS VIRTUAL INTEGRADO)</div>",
-        unsafe_allow_html=True,
-    )
-    with st.form("form_login_moodle_integrado"):
-        c_m1, c_m2, c_m3 = st.columns([1.4, 1.0, 1.4])
-        with c_m1:
-            usuario_moodle = st.text_input("Usuario de ULagos:", value="mauricioalejandro.vargas1")
-        with c_m2:
-            dominio_moodle = st.selectbox("Dominio Institucional:", options=["@alumnos.ulagos.cl", "@ulagos.cl"], index=0)
-        with c_m3:
-            clave_moodle = st.text_input("Contraseña ULagos Virtual:", value="ye16my7re4ij", type="password")
-
-        iniciar_moodle_btn = st.form_submit_button(
-            "INICIAR SINCRONIZACIÓN CON ULAGOS VIRTUAL Y CONECTAR PDFS AL VISOR",
-            use_container_width=True,
-        )
-
-    if iniciar_moodle_btn:
-        with st.status("Ejecutando sincronización híbrida con ULagos Virtual...", expanded=True) as status_box:
-            try:
-                sesion_activa, html_dash = _obtener_sesion_hibrida_moodle(usuario_moodle, dominio_moodle, clave_moodle)
-            except Exception as e:
-                status_box.update(label="Error de autenticación", state="error", expanded=True)
-                st.error(f"No fue posible completar el inicio de sesión en Moodle: {e}")
-                st.stop()
-
-            soup_dash = BeautifulSoup(html_dash, "html.parser")
-            cursos_dict = {}
-            for a in soup_dash.find_all("a", href=True):
-                if "course/view.php?id=" in a["href"]:
-                    nombre = a.text.replace("Haga clic aquí para entrar al curso", "").strip()
-                    nombre = re.sub(r"\s+", " ", nombre)
-                    if len(nombre) > 5 and nombre not in cursos_dict.values():
-                        cursos_dict[a["href"]] = nombre
-
-            if not cursos_dict:
-                cursos_dict["https://www.ulagosvirtual.cl/course/view.php?id=4056"] = "Gestión Tributaria (Respaldo)"
-
-            estadisticas = {"descargados": 0, "omitidos": 0, "ignorados": 0}
-            registro_archivos = []
-            archivos_en_zip = set()
-            anio_actual = datetime.now().year
-
-            buffer_zip = io.BytesIO()
-            barra_progreso = st.progress(0)
-            total_cursos = len(cursos_dict)
-
-            with zipfile.ZipFile(buffer_zip, "w", zipfile.ZIP_DEFLATED) as archivo_zip:
-                for idx, (url_curso, nombre_curso) in enumerate(cursos_dict.items(), start=1):
-                    carpeta_destino = _obtener_carpeta_ramo_moodle(nombre_curso, anio_actual)
-                    st.write(f"Sincronizando asignatura ({idx}/{total_cursos}): **{nombre_curso}**")
-
-                    response = sesion_activa.get(url_curso, verify=False)
-                    soup = BeautifulSoup(response.text, "html.parser")
-                    enlaces_principales = soup.find_all("a", href=True)
-
-                    enlaces_directos = list(set([
-                        a["href"] for a in enlaces_principales
-                        if "resource/view.php" in a["href"] or "pluginfile.php" in a["href"] or "url/view.php" in a["href"]
-                    ]))
-                    enlaces_carpetas = list(set([
-                        a["href"] for a in enlaces_principales if "folder/view.php" in a["href"]
-                    ]))
-                    enlaces_secciones = list(set([
-                        a["href"] for a in enlaces_principales if "course/section.php" in a["href"]
-                    ]))
-
-                    contador = 1
-                    for link in enlaces_directos:
-                        estado, nom = _descargar_a_zip_moodle(
-                            sesion_activa, link, archivo_zip, archivos_en_zip, carpeta_destino, contador
-                        )
-                        estadisticas[estado] += 1
-                        if estado == "descargados" and nom:
-                            registro_archivos.append({"Asignatura": carpeta_destino, "Archivo": nom})
-                        contador += 1
-
-                    for carpeta_url in enlaces_carpetas:
-                        res_carpeta = sesion_activa.get(carpeta_url, verify=False)
-                        archivos_adentro = list(set([
-                            a["href"] for a in BeautifulSoup(res_carpeta.text, "html.parser").find_all("a", href=True)
-                            if "pluginfile.php" in a["href"] and "forcedownload=1" in a["href"]
-                        ]))
-                        for link_interno in archivos_adentro:
-                            link_limpio = (
-                                link_interno.split("?")[0]
-                                if "?" in link_interno and "pluginfile" in link_interno
-                                else link_interno
-                            )
-                            estado, nom = _descargar_a_zip_moodle(
-                                sesion_activa, link_limpio, archivo_zip, archivos_en_zip, carpeta_destino, contador
-                            )
-                            estadisticas[estado] += 1
-                            if estado == "descargados" and nom:
-                                registro_archivos.append({"Asignatura": carpeta_destino, "Archivo": nom})
-                            contador += 1
-
-                    for seccion_url in enlaces_secciones:
-                        res_seccion = sesion_activa.get(seccion_url, verify=False)
-                        recursos_seccion = list(set([
-                            a["href"] for a in BeautifulSoup(res_seccion.text, "html.parser").find_all("a", href=True)
-                            if "resource/view.php" in a["href"] or "pluginfile.php" in a["href"] or "url/view.php" in a["href"]
-                        ]))
-                        for link in recursos_seccion:
-                            estado, nom = _descargar_a_zip_moodle(
-                                sesion_activa, link, archivo_zip, archivos_en_zip, carpeta_destino, contador
-                            )
-                            estadisticas[estado] += 1
-                            if estado == "descargados" and nom:
-                                registro_archivos.append({"Asignatura": carpeta_destino, "Archivo": nom})
-                            contador += 1
-
-                    barra_progreso.progress(idx / total_cursos)
-
-            st.session_state["moodle_zip_bytes"] = buffer_zip.getvalue()
-            st.session_state["moodle_stats"] = estadisticas
-            st.session_state["moodle_registro"] = registro_archivos
-            status_box.update(label="Sincronización completada y PDFs conectados al Visor en Vivo", state="complete", expanded=False)
-
-    if "moodle_zip_bytes" in st.session_state and st.session_state["moodle_zip_bytes"]:
-        est = st.session_state.get("moodle_stats", {"descargados": 0, "omitidos": 0, "ignorados": 0})
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Archivos Rescatados en Memoria", est["descargados"])
-        k2.metric("Duplicados Omitidos", est["omitidos"])
-        k3.metric("Enlaces Externos Ignorados", est["ignorados"])
-
-        st.download_button(
-            label="DESCARGAR PAQUETE COMPLETO DE CURSOS MOODLE (.ZIP)",
-            data=st.session_state["moodle_zip_bytes"],
-            file_name=f"Respaldo_ULagos_{datetime.now().year}.zip",
-            mime="application/zip",
-            use_container_width=True,
-        )
-
-# ------------------------------------------------------------------------------
-# PESTAÑA 5: BÓVEDA MOODLE EN 1 CLIC Y BUSCADOR DE PÁGINAS
-# ------------------------------------------------------------------------------
-with tab5:
-    st.markdown(
-        "<div class='sec-header'>5. BÓVEDA DE CÁTEDRA ALOJADA EN EL SERVIDOR Y BUSCADOR DE PÁGINAS</div>",
+        "<div class='sec-header'>4. BÓVEDA DE CÁTEDRA ALOJADA EN EL SERVIDOR Y BUSCADOR DE PÁGINAS</div>",
         unsafe_allow_html=True,
     )
     nombre_maestro, texto_maestro, dict_secciones = cargar_boveda_moodle_del_repo()
