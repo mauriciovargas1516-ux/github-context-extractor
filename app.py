@@ -2,12 +2,10 @@
 """
 app.py — HUB CENTRAL DE APLICACIONES Y EXTRACTOR DE CONTEXTO POR RAMO (ULAGOS 2026)
 Repositorio: https://github.com/mauriciovargas1516-ux/github-context-extractor
-- Personaliza automáticamente el nombre del archivo .txt y su encabezado según el ramo o los
-  repositorios seleccionados (reemplazando el nombre genérico SUPER_CONTEXTO).
-- Incorpora Cuadrillas Metodológicas e Informativas con citas exactas de la literatura oficial
-  (autor, documento de Moodle, capítulo y página/lámina) para cada asignatura.
-- Permite inyectar la cuadrilla bibliográfica directamente en el .txt descargado.
-- Detecta y permite descargar archivos locales de cátedra presentes en el repositorio.
+- Nomenclatura dinámica por asignatura o combinación de repositorios seleccionados.
+- Cuadrillas Metodológicas con HIPERVÍNCULOS DIRECTOS a la literatura oficial (incluyendo
+  saltos #page=N a la página exacta de los PDFs oficiales, enlaces a Leyes BCN/SNI/SII/CEPAL,
+  hipervínculos internos ?cita=ID al extracto literal de las láminas de Moodle y enlaces a las apps).
 """
 
 import os
@@ -78,7 +76,7 @@ st.markdown(
         border-top: 4px solid #1E3A8A;
         border-radius: 6px;
         padding: 14px;
-        margin-bottom: 12px;
+        margin-bottom: 10px;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
     .tip-title {
@@ -96,10 +94,57 @@ st.markdown(
     .tip-source {
         background-color: #F1F5F9;
         border-left: 3px solid #0284C7;
-        padding: 6px 10px;
+        padding: 7px 10px;
         font-size: 11.8px;
         color: #0F172A;
         font-weight: 600;
+        margin-bottom: 8px;
+    }
+    .link-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 6px;
+    }
+    .lit-link {
+        display: inline-block;
+        background-color: #EFF6FF;
+        color: #1D4ED8 !important;
+        border: 1px solid #BFDBFE;
+        border-radius: 4px;
+        padding: 4px 9px;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-decoration: none !important;
+    }
+    .lit-link:hover {
+        background-color: #DBEAFE;
+        border-color: #1D4ED8;
+        color: #1E3A8A !important;
+    }
+    .lit-link-internal {
+        display: inline-block;
+        background-color: #F0FDF4;
+        color: #15803D !important;
+        border: 1px solid #BBF7D0;
+        border-radius: 4px;
+        padding: 4px 9px;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-decoration: none !important;
+    }
+    .lit-link-internal:hover {
+        background-color: #DCFCE7;
+        border-color: #15803D;
+        color: #14532D !important;
+    }
+    .cita-box {
+        background-color: #FEFCE8;
+        border: 1px solid #FDE047;
+        border-left: 5px solid #CA8A04;
+        border-radius: 6px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
     }
     div[data-baseweb="input"] > div,
     div[data-baseweb="select"] > div {
@@ -114,7 +159,7 @@ st.markdown(
 
 
 # ==============================================================================
-# 2. CATÁLOGO OFICIAL DE RAMOS, REPOSITORIOS Y LITERATURA (CON PÁGINAS EXACTAS)
+# 2. CATÁLOGO DE RAMOS, HIPERVÍNCULOS (#page=N) Y EXTRACTOS LITERALES DE CÁTEDRA
 # ==============================================================================
 
 GITHUB_USER_DEFAULT = "mauriciovargas1516-ux"
@@ -176,11 +221,14 @@ MAPA_REPOS_A_RAMOS = {
     },
 }
 
+
 CUADRILLAS_LITERATURA_POR_RAMO = {
     "Evaluación Integrada de Proyectos (FDIC26)": {
         "docente": "Dra. Luz María Ferrada B.",
+        "app_url": "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/",
         "tarjetas": [
             {
+                "id": "proy_sni_2026",
                 "titulo": "1. Precios Sociales Vigentes SNI 2026 (Mano de Obra, Divisa y TSD)",
                 "formula": r"TSD = 5,5\% \quad | \quad PSMO = Salario_{Bruto} \times FCSMO \quad (MOC=0,97;\; MOSC=0,95;\; MONC=0,91;\; Divisa=1,00)",
                 "tip": (
@@ -190,50 +238,113 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "municipal, siempre debe valorizarse a su costo de oportunidad social."
                 ),
                 "fuente": (
-                    "Ministerio de Desarrollo Social y Familia [MDSF] (2026), 'Precios-Sociales-2026.pdf', Cap. 1, "
-                    "Tablas 1.1 a 1.4, págs. 4-6; y Dra. Luz María Ferrada (2026), 'Proceso2 RA1.pdf', Preguntas I.11, I.15 y II.3, págs. 1-2."
+                    "MDSF (2026), 'Precios-Sociales-2026.pdf', Cap. 1, Tablas 1.1 a 1.4, págs. 4-6; y "
+                    "Dra. Luz María Ferrada (2026), 'Proceso2 RA1.pdf', Preguntas I.11, I.15 y II.3, págs. 1-2."
                 ),
+                "marcador_moodle": "PROYECTOS 2026/Precios-Sociales-2026.pdf | Página 5",
+                "extracto_literal": (
+                    "--- [PROYECTOS 2026/Precios-Sociales-2026.pdf | Página 5] ---\n"
+                    "Tabla 1.2 Clasificación de la Mano de Obra de acuerdo con CIUO-08:\n"
+                    "1-3 Directores, Profesionales y Técnicos nivel medio -> MOC (0,97)\n"
+                    "4-8 Administrativos, Servicios, Agropecuarios, Oficiales y Operadores de máquinas -> MOSC (0,95)\n"
+                    "9 Ocupaciones elementales -> MONC (0,91)\n"
+                    "PSMO = Salario bruto * FCSMO | Tasa Social de Descuento (TSD) 2026 = 5,5% | Divisa (FCSD) = 1,00.\n\n"
+                    "--- [PROYECTOS 2026/Proceso2 RA1.pdf | Página 1 y 2] ---\n"
+                    "11. (F) Es falso porque los terrenos se tienen que valorar a su costo de oportunidad, aunque sea de propiedad del municipio.\n"
+                    "15. (V) El precio social de la mano de obra es siempre menor o igual que su precio privado.\n"
+                    "II.3 Choferes: requiere licencias especiales (competencias grupos 4-8), por lo tanto corresponde a Mano de Obra Semi Calificada (MOSC)."
+                ),
+                "links": [
+                    ("Portal Precios Sociales SNI 2026", "https://sni.gob.cl/formulacion-de-iniciativas/precios-sociales/"),
+                    ("Estudio Oficial PSMO (CIUO-08 PDF)", "https://sni.gob.cl/storage/docs/Informe_Final_PSMO.pdf"),
+                    ("Abrir Simulador Proyectos 2026", "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/"),
+                ],
             },
             {
+                "id": "proy_fontaine_leche",
                 "titulo": "2. Valor Social de la Producción (Fontaine): Eficiencia vs. Agencia",
                 "formula": r"VSP = AD + LR = VPP + \Delta EC + \Delta EP \quad | \quad P_{social} = \frac{P_0 + P_1}{2}",
                 "tip": (
                     "En un mercado sin distorsiones ni comercio exterior, al entrar el proyecto la oferta se desplaza "
-                    "(Q' = Q + Q_proy) y el precio baja de P0 a P1. El Aumento en Disponibilidad (AD) se mide bajo la curva "
-                    "de demanda entre Q0 y Qd1; la Liberación de Recursos (LR) se mide bajo la curva de oferta antigua entre Qo1 y Q0."
+                    "(Q' = Q + 1.470) y el precio baja de P0 ($187,36) a P1 ($170,80). El Aumento en Disponibilidad (AD = $144.645) "
+                    "se mide bajo la curva de demanda entre Q0 y Qd1; la Liberación de Recursos (LR = $118.609) se mide bajo la "
+                    "curva de oferta antigua entre Qo1 y Q0, sumando VSP = $263.253."
                 ),
                 "fuente": (
                     "Ernesto R. Fontaine (2008), 'Evaluación Social de Proyectos' (13.ª ed.), Cap. V (págs. 199-255) y "
                     "Cap. VII (págs. 373-385); y Dra. Luz María Ferrada (2026), 'Clase2.pdf', Ejercicio Mercado de la Leche, láminas 15-25."
                 ),
+                "marcador_moodle": "PROYECTOS 2026/Clase2.pdf | Página 20",
+                "extracto_literal": (
+                    "--- [PROYECTOS 2026/Clase2.pdf | Páginas 15, 20-25] ---\n"
+                    "ENFOQUE EFICIENCIA: VSP = Liberación de recursos (LR) + Aumento en disponibilidad (AD)\n"
+                    "ENFOQUE DE AGENCIA: VSP = VPP (Inversionista) + Delta Excedente del Consumidor + Delta Excedente del Productor\n"
+                    "EJERCICIO MERCADO DE LA LECHE (Lámina 20):\n"
+                    "Po = 50 + 0,025*Qo  |  Pd = 300 - 0,0205*Qd\n"
+                    "Cooperativa instala planta para producir 1.470 ton/año de leche en polvo: Q' = Q + 1.470."
+                ),
+                "links": [
+                    ("Libro Fontaine (2008) PDF — Cap. V (Pág. 207)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=207"),
+                    ("Libro Fontaine (2008) PDF — Cap. VII (Pág. 381)", "https://economicas.unsa.edu.ar/iie/archivos/syc/Fontaine.pdf#page=381"),
+                    ("Ver Gráfico Interactivo en App Proyectos", "https://proyectos-2026-ubfvxgpqmpp5z7dn6wlnn3.streamlit.app/"),
+                ],
             },
             {
+                "id": "proy_van_vac_cae",
                 "titulo": "3. Cuándo elegir entre VAN, VAC y CAE en el SNI",
                 "formula": r"VAC = \sum_{t=0}^{n} \frac{C_t}{(1 + r)^t} \quad | \quad CAE = VAC \cdot \frac{r(1 + r)^n}{(1 + r)^n - 1}",
                 "tip": (
                     "Usa VAN cuando las alternativas tienen igual vida útil y los beneficios son medibles. "
                     "Usa VAC cuando los beneficios son iguales o difíciles de medir y las alternativas tienen igual horizonte. "
-                    "Usa CAE (o CAE por producto/tonelada) cuando las alternativas tienen distinta vida útil o distinto volumen de producción."
+                    "Usa CAE (o CAE por tonelada/producto) cuando las alternativas tienen distinta vida útil o distinto volumen de producción."
                 ),
                 "fuente": (
                     "Dra. Luz María Ferrada (2026), 'Clase2.pdf' (lámina 12) y 'Proceso2 RA1.pdf' (Sección II.1, pág. 2); "
                     "MDSF (2025), 'METODOLOGIA-GENERAL-2025.pdf', Sección III.4, págs. 55-58; y 'Metodologia_GIRS_vf.pdf', pág. 10."
                 ),
+                "marcador_moodle": "PROYECTOS 2026/Proceso2 RA1.pdf | Página 2",
+                "extracto_literal": (
+                    "--- [PROYECTOS 2026/Proceso2 RA1.pdf | Página 2] ---\n"
+                    "• VAC se usa cuando las alternativas tienen igual años de evaluación y los beneficios son muy difíciles de medir o son idénticos entre las alternativas.\n"
+                    "• VAN se usa cuando las alternativas tienen igual años de evaluación y se tienen costos y beneficios en cada una.\n"
+                    "• El CAE se usa cuando las alternativas tienen distintos años de evaluación y los beneficios son muy difíciles de medir o son idénticos."
+                ),
+                "links": [
+                    ("Metodología General SNI 2025 (Pág. 55: VAN/VAC/CAE)", "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=55"),
+                    ("Metodología GIRS Residuos (Pág. 10: CAE/ton)", "https://sni.gob.cl/wp-content/uploads/220818_Metodologia_GIRS_vf.pdf#page=10"),
+                ],
             },
             {
+                "id": "proy_arboles_mml",
                 "titulo": "4. Árboles Causales, Población SNI y Matriz de Marco Lógico (MML)",
                 "formula": r"\text{Población Referencia} \supset \text{Población Afectada (Con Problema)} \supset \text{Población Objetivo}",
                 "tip": (
                     "Nunca redactes el problema como 'falta de una solución' (ej. 'falta un camión recolector' o 'no hay consultorio'). "
-                    "En el Marco Lógico: (1) cada proyecto tiene un único Propósito (que nace del Objetivo Central del árbol), "
+                    "En el Marco Lógico: (1) cada programa tiene un único Propósito (que nace del Objetivo Central del árbol), "
                     "(2) los indicadores se dividen en Eficacia, Eficiencia, Calidad y Economía, y (3) a nivel de Actividades no se definen supuestos."
                 ),
                 "fuente": (
                     "Ortegón, Pacheco y Roura (2005), 'Serie Manuales CEPAL N° 39', Cap. I, págs. 10-21; "
                     "Dra. Luz María Ferrada (2026), 'Presentación_2.pdf' (láminas 5-21), 'Clase3.pdf' (láminas 7-8) y 'MARCO LOGICO.pdf' (láminas 6-21)."
                 ),
+                "marcador_moodle": "PROYECTOS 2026/MARCO LOGICO.pdf | Página 8",
+                "extracto_literal": (
+                    "--- [PROYECTOS 2026/Cepal, Ortegon , et al, 2005.pdf | Página 15] ---\n"
+                    "No confundir el problema con la ausencia de una solución. No es lo mismo decir 'falta un hospital' (falta de solución), "
+                    "que decir que existen 'Altas tasas de morbilidad' en un área específica (problema).\n\n"
+                    "--- [PROYECTOS 2026/MARCO LOGICO.pdf | Páginas 8 y 14] ---\n"
+                    "Cada programa tiene un solo propósito.\n"
+                    "CATEGORÍAS DE INDICADORES: EFICACIA (grado de cumplimiento), CALIDAD (respuesta a usuarios), "
+                    "EFICIENCIA (producción física vs recursos/costos) y ECONOMÍA (capacidad de movilizar recursos financieros)."
+                ),
+                "links": [
+                    ("Manual CEPAL N° 39 — Ortegón, Pacheco y Roura (2005)", "https://www.cepal.org/fr/node/19467"),
+                    ("Metodología General SNI 2025 (Pág. 18: El Problema)", "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=18"),
+                    ("Ley REP N° 20.920 en Biblioteca del Congreso Nacional", "https://www.bcn.cl/leychile/navegar?idNorma=1090894"),
+                ],
             },
             {
+                "id": "proy_ambiental_barzev",
                 "titulo": "5. Valoración Económica Ambiental (RA2) y Gases de Efecto Invernadero",
                 "formula": r"CO_2eq = t_{CO_2} + 28 \cdot t_{CH_4} + 265 \cdot t_{N_2O} \quad | \quad P_{Social\,CO_2} = \$71.801\text{ CLP/t}",
                 "tip": (
@@ -245,223 +356,308 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
                     "Radoslav Barzev (2002), 'GuiaVEdelosBSA.pdf', Cap. I (Tablas 1-2, págs. 12-17) y Cap. IV (MVC, Costo de Viaje y "
                     "Precios Hedónicos, págs. 59-78); y MDSF (2026), 'Precios-Sociales-2026.pdf', Cap. 2.4 (pág. 11) y Cap. 5 (págs. 17-19)."
                 ),
+                "marcador_moodle": "PROYECTOS 2026/Precios-Sociales-2026.pdf | Página 18",
+                "extracto_literal": (
+                    "--- [PROYECTOS 2026/GuiaVEdelosBSA.pdf | Página 15] ---\n"
+                    "Bienes Ambientales: Son los recursos tangibles utilizados por el ser humano como insumos en la producción o en el consumo final y que se gastan y transforman en el proceso.\n"
+                    "Servicios Ambientales: Tienen como principal característica que no se gastan y no se transforman en el proceso, pero generan indirectamente utilidad al consumidor.\n\n"
+                    "--- [PROYECTOS 2026/Precios-Sociales-2026.pdf | Páginas 17-18] ---\n"
+                    "Tabla 5.1 Precio Social del Carbono 2026: 71.801 CLP / t CO2 eq.\n"
+                    "Tabla 5.2 Factor de conversión: Metano (CH4) = 28 t CO2 eq | Óxido nitroso (N2O) = 265 t CO2 eq."
+                ),
+                "links": [
+                    ("Estudio CEPAL Precio Social del Carbono en Chile (Pica et al., 2024)", "https://www.cepal.org/es/publicaciones/80999-estimacion-precio-social-carbono-la-evaluacion-la-inversion-publica-chile"),
+                    ("Decreto N° 189 Condiciones Sanitarias Rellenos Sanitarios (BCN)", "https://www.bcn.cl/leychile/navegar?idNorma=268137"),
+                ],
             },
             {
+                "id": "proy_flujo_financiado",
                 "titulo": "6. Flujo Privado Puro vs. Flujo Financiado y Capital de Trabajo",
                 "formula": r"Cuota = P \cdot \frac{r(1+r)^n}{(1+r)^n - 1} \quad | \quad CT_{desfase} = \frac{\text{Costos Anuales} \times \text{Días Desfase}}{365}",
                 "tip": (
                     "En el flujo con deuda, solo los intereses bancarios se restan antes de impuestos (creando escudo fiscal), "
-                    "mientras que la amortización del principal se resta después de impuestos. Los costos hundidos son obligaciones "
-                    "contraídas en el pasado e inevitables, por lo que son irrelevantes en un flujo incremental."
+                    "mientras que la amortización del principal se resta después de impuestos en el Flujo de Capitales. "
+                    "Los costos hundidos son obligaciones contraídas en el pasado e inevitables, por lo que no entran al flujo incremental."
                 ),
                 "fuente": (
                     "Dra. Luz María Ferrada (2026), 'Clase1 (18 ago).pdf', láminas 17-18 (Capital de Trabajo), "
                     "láminas 23-32 (Flujo Puro vs. Financiado y Tabla de Crédito) y láminas 33-36 (Flujos Incrementales y Costos Hundidos)."
                 ),
+                "marcador_moodle": "PROYECTOS 2026/Clase1 (18 ago).pdf | Página 29",
+                "extracto_literal": (
+                    "--- [PROYECTOS 2026/Clase1 (18 ago).pdf | Páginas 25, 29-30 y 34] ---\n"
+                    "• Flujo de caja del proyecto puro: financiado 100% con capital propio.\n"
+                    "• Flujo de caja del proyecto con deuda: resta Gastos Financieros (intereses) antes de Impuesto de 1ª Categoría y resta Amortizaciones en el Flujo de Capitales.\n"
+                    "• Costos Hundidos (Lámina 34): obligación de pago contraída en el pasado, inevitable e irrelevante para la evaluación."
+                ),
+                "links": [
+                    ("Metodología General SNI 2025 (Pág. 74: Anexo 4 Flujos Privados)", "https://sni.gob.cl/wp-content/uploads/METODOLOGIA-GENERAL-2025.pdf#page=74"),
+                    ("Información SII Impuestos Directos e Indirectos", "https://www.sii.cl/ayudas/aprenda_sobre/3072-.html"),
+                ],
             },
         ],
     },
     "Finanzas Avanzadas": {
         "docente": "Prof.ª Camila Bustos Rosas",
+        "app_url": "https://finanzas-avanzadas-2026.streamlit.app/",
         "tarjetas": [
             {
+                "id": "fin_fisher",
                 "titulo": "1. Modelo Consumo-Inversión y Principio de Separación de Fisher",
                 "formula": r"U = f(C_0, C_1) \quad | \quad \text{Óptimo Productivo: } RMgI = r_f \quad | \quad \text{Óptimo Consumo: } TMS(C_0, C_1) = -(1 + r_f)",
                 "tip": (
                     "En un mercado de capitales perfecto (sin fricciones, costos de transacción ni impuestos), la decisión de inversión "
-                    "de la empresa es objetiva y delegable a los administradores (aceptar proyectos hasta que la rentabilidad marginal "
-                    "iguale la tasa de mercado rf), independientemente de las preferencias subjetivas de consumo intertemporal de cada dueño."
+                    "de la empresa es objetiva y delegable a los administradores (ejecutar proyectos hasta que la rentabilidad marginal "
+                    "iguale la tasa de interés de mercado rf), independientemente de las preferencias subjetivas de consumo de los dueños."
                 ),
                 "fuente": (
                     "Camila Bustos Rosas (2026), 'Consumo - Inversión.pdf', láminas 2-10; y "
                     "Brealey, Myers y Allen (2010), 'Principios de Finanzas Corporativas' (9.ª ed.), Cap. 2, Sección 2.2, págs. 19-22."
                 ),
+                "marcador_moodle": "FINANZAS AVANZADAS 2026/Consumo - Inversi",
+                "extracto_literal": (
+                    "--- [FINANZAS AVANZADAS 2026/Consumo - Inversión.pdf | Páginas 9 y 10] ---\n"
+                    "Principio de separación de Fisher: Dado un mercado de capitales perfecto y completo, la decisión de inversión está "
+                    "representada solamente por el criterio objetivo de mercado (maximizar la riqueza) sin importar las preferencias subjetivas "
+                    "de los individuos respecto a sus decisiones de consumo.\n"
+                    "1. Elegir el óptimo de producción/inversión hasta que la tasa marginal de rentabilidad del último proyecto se iguale a la tasa de interés de mercado (decisión objetiva y delegable).\n"
+                    "2. Elegir el patrón óptimo de consumo prestando o pidiendo prestado a lo largo de la línea del mercado de capitales hasta que TMS(C0, C1) se iguale con (1 + rf) (decisión indelegable)."
+                ),
+                "links": [
+                    ("Abrir Simulador Finanzas Avanzadas en Streamlit", "https://finanzas-avanzadas-2026.streamlit.app/"),
+                    ("Repositorio GitHub Finanzas Avanzadas", "https://github.com/mauriciovargas1516-ux/FINANZAS-AVANZADAS-2026"),
+                ],
             },
             {
-                "titulo": "2. Actitudes frente al Riesgo, Juego Justo y Valor de la Información",
-                "formula": r"E(W) = \sum_{i=1}^{n} Pr_i \cdot W_i \quad | \quad \sigma = \sqrt{\sum_{i=1}^{n} Pr_i \cdot [W_i - E(W)]^2}",
-                "tip": (
-                    "Un juego es 'justo' cuando la riqueza esperada de aceptarlo es exactamente igual a la riqueza segura inicial. "
-                    "El inversionista averso al riesgo tiene utilidad marginal positiva pero decreciente y siempre rechaza un juego justo. "
-                    "El valor de la información perfecta jamás puede superar el costo de tomar una mala decisión sin ella."
-                ),
-                "fuente": (
-                    "Camila Bustos Rosas (2026), 'Relación riesgo rentabilidad.pdf', láminas 7-21; y "
-                    "'Guía introductoria - Finanzas.pdf', Ejercicios 1 al 5, pág. 1."
-                ),
-            },
-            {
-                "titulo": "3. Poder Generador de Utilidades (PGU) y Descomposición DuPont",
+                "id": "fin_riesgo_dupont",
+                "titulo": "2. Actitudes frente al Riesgo, Juego Justo y Poder Generador de Utilidades (PGU / DuPont)",
                 "formula": r"PGU = \underbrace{\left(\frac{\text{Resultado Operacional}}{\text{Ventas}}\right)}_{\text{Margen Operacional}} \times \underbrace{\left(\frac{\text{Ventas}}{\text{Activos Operacionales}}\right)}_{\text{Rotación de Activos}}",
                 "tip": (
-                    "El administrador financiero enfrenta el dilema permanente entre Liquidez (capacidad de pagar deudas de corto plazo, "
-                    "clave para sobrevivir) y Rentabilidad (capacidad de generar fondos futuros). El riesgo total del accionista suma "
-                    "el riesgo operacional (variabilidad de las ventas/PGU) más el riesgo financiero (carga fija por intereses de deuda)."
+                    "Un juego es 'justo' cuando el valor esperado de la riqueza si aceptas es igual al valor seguro si rechazas. "
+                    "El individuo averso al riesgo tiene utilidad marginal decreciente y prefiere renta segura antes que incierta de igual valor esperado. "
+                    "En la empresa, el PGU mide la rentabilidad contable de los activos operacionales combinando margen y rotación."
                 ),
                 "fuente": (
-                    "Camila Bustos Rosas (2026), 'Relación riesgo rentabilidad.pdf', láminas 23-35; "
-                    "Ross, Westerfield y Jordan (2010), Cap. 3 (pág. 64); y Gitman y Zutter (2012), Cap. 3, págs. 73-84."
+                    "Camila Bustos Rosas (2026), 'Relación riesgo rentabilidad.pdf', láminas 7-21 (Incertidumbre y Utilidad) "
+                    "y láminas 26-35 (PGU, DuPont y Riesgo Operacional vs. Financiero); y Ross et al. (2010), Cap. 3, pág. 64."
                 ),
+                "marcador_moodle": "FINANZAS AVANZADAS 2026/Relaci",
+                "extracto_literal": (
+                    "--- [FINANZAS AVANZADAS 2026/Relación riesgo rentabilidad.pdf | Páginas 8, 14, 21 y 28] ---\n"
+                    "• Juego justo (Lámina 8): el valor esperado de la riqueza si aceptas el juego es igual al valor seguro si lo rechazas.\n"
+                    "• Individuos renuentes al riesgo (Lámina 14): utilidad marginal de la renta desciende cuando la renta aumenta; prefieren renta segura.\n"
+                    "• Límite del valor de la información (Lámina 21): El valor de la información no puede superar el costo de tomar una mala decisión sin ella.\n"
+                    "• PGU (Lámina 28): PGU = Margen de Utilidad Operacional x Rotación de Activos Operacionales."
+                ),
+                "links": [
+                    ("Abrir Calculadora DuPont y Utilidad en Finanzas App", "https://finanzas-avanzadas-2026.streamlit.app/"),
+                ],
             },
             {
-                "titulo": "4. Teoría de la Cartera de Markowitz y Taller Frontera Eficiente (252 días)",
-                "formula": r"E(R_p) = \sum_{i=1}^{n} w_i E(R_i) \quad | \quad \sigma_p = \sqrt{w_A^2 \sigma_A^2 + w_B^2 \sigma_B^2 + 2 w_A w_B \rho_{AB} \sigma_A \sigma_B} \quad | \quad \sigma_{anual} = \sigma_{diaria} \sqrt{252}",
+                "id": "fin_markowitz_capm",
+                "titulo": "3. Frontera Eficiente de Markowitz (252 días), CAPM y Ecuación de Hamada",
+                "formula": r"\sigma_{anual} = \sigma_{diaria}\sqrt{252} \quad | \quad R_e = R_f + \beta_L(R_m - R_f) \quad | \quad \beta_L = \beta_U\left[1 + (1 - t)\frac{B}{S}\right]",
                 "tip": (
-                    "Mientras la correlación sea menor a +1 (rho < 1), la desviación estándar del portafolio es estrictamente menor "
-                    "que el promedio ponderado de las desviaciones individuales. En el Taller del IPSA (Dupla 13: Parque Arauco, Andina-B, "
-                    "Cenco Malls, Banco de Chile, Vapores), los precios faltantes se rellenan con el cierre del día anterior (nunca con cero)."
+                    "El efecto diversificación opera siempre que la correlación sea menor a +1 (rho < 1). "
+                    "En el Taller de Frontera Eficiente ($65.000.000; 5 vs. 30 acciones del IPSA; Dupla 13: Parque Arauco, Andina-B, "
+                    "Cenco Malls, Banco de Chile y Vapores), la tasa libre de riesgo es el promedio de los bonos BCP/BTP a 5 años del Banco Central."
                 ),
                 "fuente": (
-                    "Camila Bustos Rosas (2026), 'Teoría de mercado de capitales.pdf' (láminas 11-36), "
-                    "'Instrucciones taller frontera eficiente.pdf' (págs. 1-2) y 'Taller Frontera Eficiente Ing Comercial.xlsx' (Hoja División cartera)."
+                    "Camila Bustos Rosas (2026), 'Teoría de mercado de capitales.pdf' (láminas 11-50), "
+                    "'Instrucciones taller frontera eficiente.pdf' (págs. 1-2) y 'Taller Frontera Eficiente Ing Comercial.xlsx'."
                 ),
-            },
-            {
-                "titulo": "5. Modelo CAPM, Riesgo Sistemático y Ecuación de Hamada",
-                "formula": r"R_e = R_f + \beta_L (R_m - R_f) \quad | \quad \beta_i = \frac{Cov(R_i, R_m)}{Var(R_m)} \quad | \quad \beta_L = \beta_U \left[1 + (1 - t)\frac{B}{S}\right]",
-                "tip": (
-                    "La diversificación elimina el riesgo no sistemático (específico), por lo que el mercado solo premia el riesgo "
-                    "sistemático medido por Beta. Si una empresa no transa en bolsa, se toma la Beta apalancada (Beta_L) de un comparable, "
-                    "se divide por [1 + (1-t)(B/S)] para obtener la Beta pura del negocio (Beta_U) y se reapalanca con la deuda objetivo."
+                "marcador_moodle": "FINANZAS AVANZADAS 2026/Instrucciones taller frontera eficiente.pdf | Página 1",
+                "extracto_literal": (
+                    "--- [FINANZAS AVANZADAS 2026/Teoría de mercado de capitales.pdf | Páginas 31, 40 y 49] ---\n"
+                    "• Si correlación < +1: existe reducción de riesgo; cuanto más baja la correlación, mayor el beneficio de diversificación.\n"
+                    "• CAPM (Lámina 40): Re = Rf + Beta * (Rm - Rf).\n"
+                    "• Ecuación de Hamada (Lámina 49): Beta_L = Beta_U * [1 + (1 - t)*(B / S)].\n\n"
+                    "--- [FINANZAS AVANZADAS 2026/Taller Frontera Eficiente Ing Comercial.xlsx] ---\n"
+                    "Dupla 13 (Raquel Becerra, Mauricio Vargas, Catalina Marigual): Cartera 13 (Parque Arauco - Andina-B - Cenco Malls - Banco de Chile - Vapores) y Cartera 20 / Cartera 6."
                 ),
-                "fuente": (
-                    "Camila Bustos Rosas (2026), 'Teoría de mercado de capitales.pdf', láminas 37-50; y "
-                    "Brealey, Myers y Allen (2010), Cap. 8 y 9 (págs. 189-225) y Cap. 19."
-                ),
+                "links": [
+                    ("Base de Datos Estadísticos Banco Central de Chile (BCP/BTP 5 años)", "https://si3.bcentral.cl/Siete/ES/Siete/Cuadro/CAP_TASA_INTERES/MN_TASA_INTERES_09/TMS_15"),
+                    ("Abrir Optimizador Markowitz / CAPM en Vivo", "https://finanzas-avanzadas-2026.streamlit.app/"),
+                ],
             },
         ],
     },
     "Desarrollo y Gestión Territorial": {
         "docente": "Prof. Claudio Mancilla",
+        "app_url": "https://desarrollo-y-gestion-territorial-2026.streamlit.app/",
         "tarjetas": [
             {
-                "titulo": "1. Modelos Clásicos de Localización: Von Thünen y Triángulo de Weber",
-                "formula": r"LR = Y(m - c) - Y \cdot t \cdot d \quad | \quad IM = \frac{\text{Peso Materias Primas Localizadas}}{\text{Peso Producto Final}}",
+                "id": "terr_localizacion",
+                "titulo": "1. Teoría de la Localización: Von Thünen, Weber, Hotelling, Christaller-Lösch y Krugman",
+                "formula": r"LR = Y(m - c) - Ytd \quad | \quad IM = \frac{\text{Peso MP Localizadas}}{\text{Peso Producto Final}} \quad | \quad p^*(x) = \frac{aW(x)}{\rho}",
                 "tip": (
-                    "En Von Thünen la renta agrícola (LR) es un residuo tras descontar costos de transporte (Y*t*d), generando anillos concéntricos. "
-                    "En Weber, si el Índice Material IM > 1 (insumos pierden peso), la planta se acerca a la materia prima; si IM < 1, "
-                    "se acerca al mercado. Un sitio con mano de obra barata atrae a la firma solo si está dentro de la isodápana crítica."
+                    "En Von Thünen la renta agrícola decrece con la distancia formando anillos concéntricos. "
+                    "En Weber, si IM > 1 la fábrica se ubica cerca de los insumos; si IM < 1 se ubica cerca del mercado, "
+                    "desviándose hacia un enclave laboral barato solo si éste cae dentro de la isodápana crítica. "
+                    "En Krugman (1995), el patrón centro-periferia emerge de economías de escala, bajos costos de transporte y fuerzas centrípetas."
                 ),
                 "fuente": (
                     "Néstor Duch Brown (Universitat de Barcelona), 'La_teoria_de_la_localizacion.pdf', "
-                    "Sección 1.1 (Von Thünen, págs. 6-10) y Sección 1.2 (Launhardt-Weber e Isodápanas, págs. 10-16)."
+                    "Secciones 1.1 a 1.4 (págs. 6-23) y Secciones 2.1 a 3 (págs. 34-66)."
                 ),
+                "marcador_moodle": "TERRITORIAL 2026/La_teoria_de_la_localizacion.pdf | Página 7",
+                "extracto_literal": (
+                    "--- [TERRITORIAL 2026/La_teoria_de_la_localizacion.pdf | Páginas 7, 12, 13 y 43] ---\n"
+                    "• Von Thünen (Pág. 7): LR = Y(m - c) - Y*t*d (donde LR es renta por unidad de tierra, Y producto, m precio mercado, c costo producción, t tarifa transporte, d distancia).\n"
+                    "• Weber (Pág. 12-13): IM = peso de las materias primas localizadas / peso del producto final. Aquella isodápana que tiene el mismo valor que el ahorro en el coste de la mano de obra se denomina isodápana crítica.\n"
+                    "• Krugman (Pág. 43): Fuerzas Centrípetas (ventajas naturales, economías externas pecuniarias de acceso a mercados/productos, spillovers tecnológicos) vs. Fuerzas Centrífugas (altas rentas inmobiliarias, congestión, contaminación)."
+                ),
+                "links": [
+                    ("Abrir Plataforma Desarrollo y Gestión Territorial", "https://desarrollo-y-gestion-territorial-2026.streamlit.app/"),
+                    ("Repositorio GitHub Territorial 2026", "https://github.com/mauriciovargas1516-ux/DESARROLLO-Y-GESTION-TERRITORIAL-2026"),
+                ],
             },
             {
-                "titulo": "2. Competencia Espacial (Hotelling), Lugares Centrales (Christaller-Lösch) y Krugman",
-                "formula": r"\text{Christaller: Umbral (Demanda mínima)} \;\text{vs.}\; \text{Rango (Distancia máxima)} \quad | \quad \text{Krugman: } p^*(x) = \frac{a W(x)}{\rho}",
-                "tip": (
-                    "En Hotelling (demanda inelástica en mercado lineal), dos firmas convergen al centro aunque el óptimo social sea "
-                    "ubicarse en los cuartiles (1/4 y 3/4). Con productos diferenciados (D'Aspremont et al., 1979), aglomerarse desata "
-                    "una guerra de precios a lo Bertrand. En Krugman (1995), la aglomeración surge de fuerzas centrípetas (encadenamientos, "
-                    "mercado laboral conjunto, spillovers) frente a fuerzas centrífugas (rentas del suelo, congestión)."
-                ),
-                "fuente": (
-                    "Néstor Duch Brown, 'La_teoria_de_la_localizacion.pdf', Sección 1.3 (Hotelling, págs. 17-19), "
-                    "Sección 1.4 (Christaller-Lösch, págs. 19-23), Sección 1.5 (pág. 24) y Sección 2.3-3 (Krugman, págs. 42-66)."
-                ),
-            },
-            {
-                "titulo": "3. Indicadores de Ordenamiento Territorial: Primacía, Guttman/Rondinelli y Aislamiento",
+                "id": "terr_ot_guttman",
+                "titulo": "2. Indicadores de Ordenamiento Territorial: Primacía, Guttman/Rondinelli y Aislamiento",
                 "formula": r"IP = \frac{P_1}{P_2 + P_3 + P_4} \quad | \quad \text{Matriz de Rondinelli: } 1 = \text{Presente},\; 0 = \text{Ausente}",
                 "tip": (
-                    "Un Índice de Primacía alto refleja macrocefalia urbana en la comuna o ciudad principal. "
-                    "Para construir la Escala de Guttman / Matriz de Rondinelli en las 10 comunas más pobladas (mínimo 7 variables), "
-                    "las variables elegidas deben mostrar diferencias reales entre comunas (si todas tienen 1, debes cambiar la variable)."
+                    "El Índice de Primacía relaciona la comuna más poblada con la suma de las tres siguientes (alto valor = macrocefalia). "
+                    "En la Escala de Guttman / Matriz de Rondinelli (para las 10 comunas más pobladas y mínimo 7 variables), "
+                    "las variables elegidas deben discriminar entre comunas: si todas tienen valor 1, debes reemplazar la variable."
                 ),
                 "fuente": (
-                    "Prof. Claudio Mancilla (2024/2026), '06 OT 2024.pdf' (láminas 10-15), 'Unidad 5. Ordenamiento Territorial.pdf' (pág. 1) "
-                    "y 'Ejemplo Matriz Rondinelli OT.xlsx'; y SUBDERE-CEPAL (2011), 'PROT', págs. 11-22."
+                    "Prof. Claudio Mancilla (2024/2026), '06 OT 2024.pdf' (láminas 10-16), 'Unidad 5. Ordenamiento Territorial.pdf' (pág. 1) "
+                    "y 'SUBDERE articles-83896_recurso_1_1.pdf' (PROT, págs. 11-22)."
                 ),
+                "marcador_moodle": "TERRITORIAL 2026/06 OT 2024.pdf | Página 11",
+                "extracto_literal": (
+                    "--- [TERRITORIAL 2026/06 OT 2024.pdf | Páginas 11, 12 y 15] ---\n"
+                    "• Índice de Primacía: establece una relación entre el peso relativo del principal centro poblado del territorio, en referencia a la suma de los tres siguientes.\n"
+                    "• Escala de Gutmann / Matriz de Rondinelli: registra presencia (1) o ausencia (0) de servicios, infraestructura o funciones. Ya que las localidades están ordenadas en función a su población, el índice funcional debe tener una jerarquía decreciente.\n\n"
+                    "--- [TERRITORIAL 2026/Unidad 5. Ordenamiento Territorial.pdf | Página 1] ---\n"
+                    "La idea es encontrar DIFERENCIAS entre las comunas de su territorio. Es decir, si todas tuvieran valor 1 en todas las categorías, se debe cambiar/incorporar por otras variables. Como mínimo, deben existir 7 variables."
+                ),
+                "links": [
+                    ("Manual Elaboración PLADECO (SUBDERE PDF)", "http://www.subdere.gov.cl/sites/default/noticiasold/articles-77172_recurso_1.pdf"),
+                    ("Abrir Módulo Guttman / Rondinelli en App Territorial", "https://desarrollo-y-gestion-territorial-2026.streamlit.app/"),
+                ],
             },
             {
-                "titulo": "4. Redes Empresariales (Dini 2010), UCINET y Cadenas de Valor",
-                "formula": r"\text{Densidad Red Dirigida} = \frac{L}{N(N - 1)} \quad (\text{con diagonal } A_{ii} = 0)",
+                "id": "terr_dini_ucinet",
+                "titulo": "3. Redes Empresariales (Dini 2010), UCINET y Cadenas de Valor (Control 4)",
+                "formula": r"\text{Densidad Dirigida} = \frac{L}{N(N - 1)} \quad | \quad \text{Diagonal Principal } A_{ii} = 0",
                 "tip": (
-                    "En el trabajo de campo de Cadenas de Valor y Redes (Control 4), entrevista a 3 actores de al menos 2 eslabones "
-                    "(1 gremio + 2 empresas). Regla metodológica del profesor: jamás sugieras que 'debe existir un clúster' ni hables "
-                    "de 'debilidades'; pregunta por 'desafíos o aspectos por fortalecer'."
+                    "En el Taller de Sistemas Productivos Locales y Cadenas de Valor (Control 4), se entrevista a 3 personas de "
+                    "organizaciones distintas cubriendo al menos 2 eslabones (1 gremio + 2 empresas). Regla de entrevista del profesor: "
+                    "no sugieras que debe existir un clúster ni uses la palabra 'debilidades' (pregunta por desafíos o aspectos por fortalecer)."
                 ),
                 "fuente": (
-                    "Marco Dini (2010), 'Competitividad, redes de empresas y cooperación empresarial' (CEPAL); "
-                    "Prof. Claudio Mancilla (2026), 'Unidad 5. Redes y Cadena de Valor.dcx.pdf', págs. 1-4; y '20210827 MIPE y Ecosistema en Los Lagos.pdf', págs. 6-18."
+                    "Marco Dini (2010), 'Competitividad, redes de empresas y cooperación empresarial' (CEPAL); y "
+                    "Prof. Claudio Mancilla (2026), 'Unidad 5. Redes y Cadena de Valor.dcx.pdf', págs. 1-4."
                 ),
+                "marcador_moodle": "TERRITORIAL 2026/Unidad 5. Redes y Cadena de Valor.dcx.pdf | Página 2",
+                "extracto_literal": (
+                    "--- [TERRITORIAL 2026/Unidad 5. Redes y Cadena de Valor.dcx.pdf | Páginas 1 y 2] ---\n"
+                    "Entrevista 1: Gremio, cooperativa u organización articuladora (Cooperación y visión del territorio).\n"
+                    "Entrevista 2: Empresa o productor del rubro (Operación, proveedores y compradores).\n"
+                    "Entrevista 3: Empresa de otro eslabón (Contrastar flujos y dificultades).\n"
+                    "Durante y después: No sugieran que necesariamente debe existir un clúster. No hablen de DEBILIDADES; indiquen desafíos, mejoras o aspectos para fortalecer."
+                ),
+                "links": [
+                    ("Abrir Simulador Redes de Dini y UCINET en Vivo", "https://desarrollo-y-gestion-territorial-2026.streamlit.app/"),
+                ],
             },
         ],
     },
     "Gestión Tributaria para la Toma de Decisiones": {
         "docente": "Prof. RVS",
+        "app_url": "https://gestion-tributaria-2026.streamlit.app/",
         "tarjetas": [
             {
-                "titulo": "1. Determinación Mensual del IVA, Boletas y Crédito Fiscal (D.L. N° 825)",
+                "id": "trib_iva_dl825",
+                "titulo": "1. Determinación Mensual del IVA, Crédito Fiscal y Exclusión de Automóviles (D.L. N° 825)",
                 "formula": r"\text{Neto Boleta} = \frac{\text{Total Bruto}}{1,19} \quad | \quad \text{Remanente UTM} = \frac{\text{Remanente CLP}}{\text{UTM}_{\text{mes declaración}}}",
                 "tip": (
-                    "Desde la Ley N° 21.420 (2023), todos los servicios remunerados son afectos a IVA salvo exención expresa (como Sociedades "
-                    "de Profesionales o educación/salud). El IVA en la compra de automóviles o station wagons NO da derecho a crédito fiscal "
-                    "(Art. 23 N° 4 D.L. 825) y constituye un mayor costo o gasto ('IVA no recuperable'), a diferencia de un furgón de reparto o grúa horquilla."
+                    "El IVA en la compra de automóviles o station wagons (Art. 23 N° 4 D.L. 825) NO da derecho a crédito fiscal "
+                    "y se registra como 'IVA no recuperable' (a diferencia de un furgón de reparto o una grúa horquilla, que sí dan crédito). "
+                    "Si el Crédito supera al Débito, el remanente (cód. 77 F29) se convierte a UTM y se reajusta el mes siguiente (cód. 504)."
                 ),
                 "fuente": (
-                    "Prof. RVS (2026), 'Apunte IVA 2026.pdf' (págs. 1-8), 'IVA y Toma de Decisiones.pdf' (págs. 1-6) "
+                    "Prof. RVS (2026), 'Apunte IVA 2026.pdf' (págs. 1-8), 'IVA y Toma de Decisiones.pdf' (pág. 3) "
                     "y 'Ejerc-03 / Ejerc-04 Ejercicio IVA (Datos).xlsx' (Hojas Libro Compras y Resumen IVA)."
                 ),
+                "marcador_moodle": "TRIBUTARIA 2026/IVA y Toma de Decisiones.pdf | Página 3",
+                "extracto_literal": (
+                    "--- [TRIBUTARIA 2026/IVA y Toma de Decisiones.pdf | Página 3] ---\n"
+                    "Si el Crédito Fiscal > Débito Fiscal, se genera un remanente de crédito fiscal que puede ser imputado a los débitos fiscales de períodos posteriores:\n"
+                    "Remanente Anterior en UTM = Remanente Anterior $ / UTM Mes siguiente.\n"
+                    "Luego, en el mes siguiente: Remanente actualizado = Remanente Anterior en UTM x UTM Mes siguiente.\n\n"
+                    "--- [TRIBUTARIA 2026/Ejerc-04 Ejercicio IVA (Datos).xlsx | Hoja Libro Compras] ---\n"
+                    "El IVA del automóvil (Art. 23 N°4 DL 825: Automóvil station wagon para gerencia) no da derecho a crédito fiscal: se registra como IVA no recuperable."
+                ),
+                "links": [
+                    ("D.L. N° 825 Ley sobre Impuesto a las Ventas y Servicios (BCN)", "https://www.bcn.cl/leychile/navegar?idNorma=6369"),
+                    ("Guía SII Empresario Individual y 1.ª Categoría (PDF)", "https://www.sii.cl/siieduca/aprende-con-nosotros/docs/empresario_individual.pdf"),
+                    ("Abrir Suite Tributaria 2026 en Streamlit", "https://gestion-tributaria-2026.streamlit.app/"),
+                ],
             },
             {
-                "titulo": "2. Retenciones en Formulario 29: Honorarios (2026), Remuneraciones y PPM",
-                "formula": r"\text{Retención BHE 2026} = 15,25\% \quad | \quad \text{Honorario Bruto} = \frac{\text{Líquido}}{0,8475} \quad | \quad \text{Tope Gratif.} = \frac{4,75 \times IMM}{12}",
+                "id": "trib_art97_delitos",
+                "titulo": "2. Infracciones y Delitos Tributarios (Art. 97 Código Tributario y Ley N° 20.393)",
+                "formula": r"\text{Art. 97 N° 4 CT (Facturas Falsas): Multa } 50\%\text{–}400\% \text{ del tributo eludido} + \text{Presidio}",
                 "tip": (
-                    "Las Boletas de Honorarios Electrónicas no llevan IVA, pero su retención de 2.ª Categoría (15,25% en 2026) se entera "
-                    "en el código 151 del F29. El Impuesto Único de Segunda Categoría de los trabajadores se calcula sobre la Base Tributable "
-                    "(Total Imponible menos AFP, Salud 7% y Seguro de Cesantía 0,6%) y se declara en el código 48 del F29."
-                ),
-                "fuente": (
-                    "Prof. RVS (2026), 'Ejerc-02 Ejercicio IVA (Pauta) 211026 (Datos).xlsx' (Hojas L-Honor, L-Remun y Form-29) "
-                    "y 'Ejerc-04 Ejercicio IVA (Datos).xlsx' (Hoja Parámetros, IMM = $553.553, Tope Gratificación = $219.115)."
-                ),
-            },
-            {
-                "titulo": "3. Infracciones y Delitos Tributarios (Art. 97 CT) y Responsabilidad Penal (Ley 20.393)",
-                "formula": r"\text{Art. 97 N° 4 CT (Facturas Falsas): Multa } 50\% \text{ a } 400\% \text{ del tributo eludido} + \text{Presidio}",
-                "tip": (
-                    "Contabilizar facturas por servicios inexistentes (caso 'Constructora del Sur S.A. / Global SpA') obliga a revertir "
-                    "el IVA Crédito Fiscal, rechaza el gasto en Renta, aplica intereses penales (1,5% mensual), configura delito tributario "
-                    "doloso bajo el Art. 97 N° 4 del Código Tributario y expone a la empresa a disolución o prohibición de contratar con el "
-                    "Estado bajo la Ley N° 20.393 si carece de un Modelo de Prevención de Delitos (MPD)."
+                    "En el caso 'El Espejo Tributario (Constructora del Sur S.A.)', ingresar 3 facturas falsas por $50.000.000 netos "
+                    "($9.500.000 de IVA) de un proveedor simulado obliga a restituir el IVA Crédito Fiscal, rechaza el gasto en Renta, "
+                    "aplica intereses penales (1,5% mensual), configura delito penal bajo el Art. 97 N° 4 del Código Tributario y activa "
+                    "la responsabilidad penal de la persona jurídica bajo la Ley N° 20.393."
                 ),
                 "fuente": (
                     "Prof. RVS (2026), 'Caso GTTD Emision Facturas Falsas (Datos).pdf' (págs. 1-2), "
-                    "'Clase Infracciones Sanciones Delitos GTD.pdf' (láminas 4-21) y 'Clase Facultades Fiscalizadoras GTD.pdf' (láminas 4-16)."
+                    "'Clase Infracciones Sanciones Delitos GTD.pdf' (láminas 4-21) y 'Clase Notificaciones GTD.pdf' (láminas 4-12)."
                 ),
+                "marcador_moodle": "TRIBUTARIA 2026/Caso GTTD Emision Facturas Falsas (Datos).pdf | Página 1",
+                "extracto_literal": (
+                    "--- [TRIBUTARIA 2026/Caso GTTD Emision Facturas Falsas (Datos).pdf | Páginas 1 y 2] ---\n"
+                    "Servicios y Asesorías Global SpA emite a Constructora del Sur S.A. tres facturas electrónicas por $50.000.000 netos más $9.500.000 de IVA ($59.500.000 total) sin prestación real.\n"
+                    "• Artículo 97 N°4 CT: Sanciona la presentación maliciosa de declaraciones incompletas o falsas mediante facturas falsas o simuladas con multas de 50% a 300% (o hasta 400%) del tributo evadido más presidio.\n\n"
+                    "--- [TRIBUTARIA 2026/Clase Infracciones Sanciones Delitos GTD.pdf | Página 20] ---\n"
+                    "Bajo la Ley N° 20.393, las empresas responden penalmente por delitos tributarios (Art. 97 N° 4) cometidos por sus dueños o ejecutivos en beneficio social, exigiendo un Modelo de Prevención de Delitos (MPD)."
+                ),
+                "links": [
+                    ("Código Tributario D.L. N° 830 en Biblioteca del Congreso Nacional", "https://www.bcn.cl/leychile/navegar?idNorma=6374"),
+                    ("Portal SII Educación Fiscal y Cumplimiento", "https://www.sii.cl/destacados/sii_educa/"),
+                ],
             },
         ],
     },
     "Introducción al Deporte Paralímpico": {
         "docente": "Prof. Exal García Carrillo",
+        "app_url": "https://app-context-extractor-d8x5kwfdodzvmx7m3vean.streamlit.app/",
         "tarjetas": [
             {
-                "titulo": "1. Deficiencias Elegibles y Clasificación Funcional (Para Atletismo vs. Para Powerlifting)",
-                "formula": r"\text{Para Atletismo: Prefijos } T\text{ (Pista/Salto) y } F\text{ (Campo)} \quad | \quad \text{Para Powerlifting: Clase única por Peso Corporal}",
+                "id": "para_taller2_casos",
+                "titulo": "1. Análisis de Casos y Clasificación Funcional (Para Atletismo vs. Para Powerlifting)",
+                "formula": r"\text{Para Atletismo: } T\text{ (Pista)} / F\text{ (Campo)} \quad | \quad \text{Para Powerlifting: Categorías solo por Peso Corporal}",
                 "tip": (
-                    "En Para Atletismo las clases agrupan por impacto funcional: F11-F13 (discapacidad visual), T35-T38 / F35-F38 (hipertonía, "
-                    "ataxia o atetosis como parálisis cerebral espástica ambulatoria), y T64 (amputación transtibial unilateral con prótesis). "
-                    "En cambio, World Para Powerlifting NO tiene clases por nivel de discapacidad ni permite discapacidad visual (caso Valentina): "
-                    "exige deficiencia elegible en tren inferior/cadera y agrupa en una clase única dividida solo por sexo y categoría de peso."
+                    "Caso 1 (Martín, amputación transtibial unilateral con prótesis en 100/200m): deficiencia por amputación/disminución de "
+                    "longitud de extremidad; clase probable T64. Caso 2 (Carolina, lesión medular T10): elegible en Para Powerlifting, "
+                    "donde NO hay clases por nivel de lesión sino solo divisiones por sexo y peso corporal. Caso 3 (Diego, parálisis cerebral "
+                    "espástica ambulatoria en bala): hipertonía/espasticidad, clases F35-F38. Caso 4 (Valentina, discapacidad visual): "
+                    "puede competir en disco (F11-F13), pero NO en World Para Powerlifting porque la deficiencia visual no es elegible allí."
                 ),
                 "fuente": (
-                    "Prof. Exal García Carrillo (2026), 'Taller_II_Deporte_Paralimpico.pdf', Casos 1 (Martín), 2 (Carolina), "
-                    "3 (Diego) y 4 (Valentina), págs. 1-3."
+                    "Prof. Exal García Carrillo (2026), 'Taller_II_Deporte_Paralimpico.pdf', Casos 1 al 4, págs. 1-3; y "
+                    "'Entrevista para deportista.pdf', págs. 1-5."
                 ),
-            },
-            {
-                "titulo": "2. Estructura de la Entrevista y Análisis Teórico (Modelos e Inclusión)",
-                "formula": r"\text{Evaluación: } 60\% \text{ Informe Escrito (6 a 8 págs.)} + 40\% \text{ Exposición Oral (5 a 10 min)}",
-                "tip": (
-                    "El informe no debe ser una transcripción literal de las preguntas, sino una síntesis analítica organizada en los "
-                    "5 bloques (Trayectoria, Discapacidad y deporte, Entorno y accesibilidad, Competición/clasificación y Reflexión) "
-                    "vinculada explícitamente con al menos dos conceptos teóricos del curso (ej. inclusión vs. integración, clasificación funcional)."
+                "marcador_moodle": "Taller_II_Deporte_Paralimpico.pdf | Página 1",
+                "extracto_literal": (
+                    "--- [[2026]A1 INTRODUCCIÓN AL DEPORTE PARALÍMPICO 2026/Taller_II_Deporte_Paralimpico.pdf | Páginas 1-3] ---\n"
+                    "• Caso 1 (Martín, 24 años): amputación transtibial pierna derecha, usa prótesis, pruebas de 100 y 200 m en para atletismo.\n"
+                    "• Caso 2 (Carolina, 30 años): lesión medular completa T10, usa silla de ruedas, desea competir en para powerlifting.\n"
+                    "• Caso 3 (Diego, 19 años): parálisis cerebral espástica ambulatoria, alteraciones de equilibrio y coordinación, lanzamiento de bala.\n"
+                    "• Caso 4 (Valentina, 22 años): discapacidad visual congénita severa, desea entrenar lanzamiento de disco y consulta por para powerlifting."
                 ),
-                "fuente": (
-                    "Prof. Exal García Carrillo (2026), 'Entrevista para deportista.pdf', Secciones 1 a 9, págs. 1-5."
-                ),
+                "links": [
+                    ("Clasificación Oficial Comité Paralímpico Internacional (IPC)", "https://www.paralympic.org/classification"),
+                    ("Reglamento World Para Athletics", "https://www.paralympic.org/athletics/classification"),
+                    ("Reglamento World Para Powerlifting", "https://www.paralympic.org/powerlifting/classification"),
+                ],
             },
         ],
     },
@@ -469,13 +665,49 @@ CUADRILLAS_LITERATURA_POR_RAMO = {
 
 
 # ==============================================================================
-# 3. FUNCIONES DE NOMENCLATURA PERSONALIZADA Y EXTRACCIÓN GITHUB API
+# 3. FUNCIONES DE BÚSQUEDA EN ARCHIVOS LOCALES Y EXTRACCIÓN GITHUB API
 # ==============================================================================
 
 EXTENSIONES_TEXTO_PERMITIDAS = (
     ".py", ".md", ".txt", ".toml", ".json", ".yaml", ".yml",
     ".css", ".html", ".js", ".rmd", ".r", ".sql", ".sh", ".csv"
 )
+
+
+@st.cache_data(show_spinner=False)
+def cargar_texto_destilado_local():
+    """Carga el archivo .txt destilado de cátedra si existe en el repositorio para búsquedas de páginas."""
+    carpeta = os.path.dirname(os.path.abspath(__file__))
+    for f in os.listdir(carpeta):
+        if f.lower().endswith(".txt") and f not in ("requirements.txt", "packages.txt"):
+            ruta = os.path.join(carpeta, f)
+            try:
+                with open(ruta, "r", encoding="utf-8", errors="replace") as fp:
+                    return f, fp.read()
+            except Exception:
+                pass
+    return None, ""
+
+
+def buscar_pagina_en_destilado_local(marcador):
+    """Extrae el bloque de la página desde el archivo local destilado si está presente en el repo."""
+    _, texto_completo = cargar_texto_destilado_local()
+    if not texto_completo or not marcador:
+        return None
+    pos = texto_completo.find(marcador)
+    if pos == -1:
+        return None
+    inicio = max(0, pos - 40)
+    fin = min(len(texto_completo), pos + 2400)
+    return texto_completo[inicio:fin]
+
+
+def buscar_tarjeta_por_id(cita_id):
+    for nombre_ramo, datos in CUADRILLAS_LITERATURA_POR_RAMO.items():
+        for t in datos["tarjetas"]:
+            if t["id"] == cita_id:
+                return nombre_ramo, datos["docente"], t
+    return None, None, None
 
 
 def obtener_meta_repo(nombre_repo, desc_api="", homepage_api=""):
@@ -494,10 +726,6 @@ def obtener_meta_repo(nombre_repo, desc_api="", homepage_api=""):
 
 
 def construir_nombre_y_encabezado_personalizado(repos_seleccionados, usuario_gh):
-    """
-    Genera un nombre de archivo .txt y un encabezado interno personalizados según el ramo
-    o la combinación exacta de repositorios seleccionados por el usuario.
-    """
     fecha_hoy = datetime.now().strftime("%Y-%m-%d")
     if not repos_seleccionados:
         return f"CONTEXTO_PORTAFOLIO_{fecha_hoy}.txt", "EXTRACCIÓN DE PORTAFOLIO VACÍA\n"
@@ -538,7 +766,6 @@ def construir_nombre_y_encabezado_personalizado(repos_seleccionados, usuario_gh)
 
 
 def formatear_cuadrilla_en_texto_plano(nombre_ramo):
-    """Convierte la cuadrilla bibliográfica de un ramo en texto estructurado para inyectar al .txt."""
     if nombre_ramo not in CUADRILLAS_LITERATURA_POR_RAMO:
         return ""
     info = CUADRILLAS_LITERATURA_POR_RAMO[nombre_ramo]
@@ -553,6 +780,9 @@ def formatear_cuadrilla_en_texto_plano(nombre_ramo):
         lineas.append(f"    - Fórmula / Regla: {t['formula']}")
         lineas.append(f"    - Tip de Cátedra : {t['tip']}")
         lineas.append(f"    - Fuente Exacta  : {t['fuente']}")
+        if t.get("links"):
+            enlaces_str = " | ".join(f"{lbl}: {url}" for lbl, url in t["links"])
+            lineas.append(f"    - Hipervínculos  : {enlaces_str}")
         lineas.append("")
     lineas.append("-" * 90 + "\n")
     return "\n".join(lineas)
@@ -630,7 +860,7 @@ def extraer_repositorio_completo(usuario, repo_info, token="", incluir_literatur
 
 
 # ==============================================================================
-# 4. RENDERIZADOR DE CUADRILLAS INFORMATIVAS CON CITAS DE LA LITERATURA
+# 4. RENDERIZADOR DE CUADRILLAS CON HIPERVÍNCULOS EXTERNOS E INTERNOS
 # ==============================================================================
 
 def renderizar_cuadrillas_ramo(nombre_ramo):
@@ -646,12 +876,25 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
             if i + j < len(tarjetas):
                 t = tarjetas[i + j]
                 with cols[j]:
+                    # Construir barra de hipervínculos externos (#page=N) + hipervínculo interno (?cita=ID)
+                    links_html = [
+                        f"<a class='lit-link-internal' href='?cita={t['id']}' target='_self'>"
+                        f"Ver Extracto Literal de la Página/Lámina</a>"
+                    ]
+                    for lbl_link, url_link in t.get("links", []):
+                        links_html.append(
+                            f"<a class='lit-link' href='{url_link}' target='_blank' rel='noopener noreferrer'>"
+                            f"{lbl_link} &#8599;</a>"
+                        )
+                    barra_enlaces = "<div class='link-bar'>" + "".join(links_html) + "</div>"
+
                     st.markdown(
                         f"""
                         <div class="tip-card">
                             <div class="tip-title">{t['titulo']}</div>
                             <div class="tip-body">{t['tip']}</div>
                             <div class="tip-source">Ubicación en la Literatura: {t['fuente']}</div>
+                            {barra_enlaces}
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -659,20 +902,60 @@ def renderizar_cuadrillas_ramo(nombre_ramo):
                     if t.get("formula"):
                         st.latex(t["formula"])
 
+                    with st.expander(f"Abrir transcripción exacta de la página ({t['marcador_moodle']})", expanded=False):
+                        st.code(t["extracto_literal"], language="text")
+                        fragmento_repo = buscar_pagina_en_destilado_local(t.get("marcador_moodle", ""))
+                        if fragmento_repo:
+                            st.caption("Coincidencia directa verificada en el archivo destilado del repositorio:")
+                            st.code(fragmento_repo, language="text")
+
 
 # ==============================================================================
-# 5. INTERFAZ PRINCIPAL DE USUARIO (4 PESTAÑAS)
+# 5. INTERFAZ PRINCIPAL DE USUARIO Y DETECTOR DE HIPERVÍNCULO INTERNO (?cita=...)
 # ==============================================================================
 
 st.markdown(
     """
     <div class="top-banner">
         <h1>HUB DE APLICACIONES Y EXTRACTOR DE CONTEXTO ACADÉMICO POR RAMO (ULAGOS 2026)</h1>
-        <p>Compilación en vivo vía API REST de GitHub con nomenclatura dinámica por asignatura y cuadrillas metodológicas referenciadas a la literatura oficial de cátedra.</p>
+        <p>Compilación en vivo vía API REST de GitHub con nomenclatura dinámica por asignatura, cuadrillas metodológicas e hipervínculos directos a la página exacta de la literatura.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
+
+# Si el usuario hizo clic en un hipervínculo interno (?cita=ID), mostrar el visor destacado arriba
+cita_activa = st.query_params.get("cita", None)
+if cita_activa:
+    ramo_c, doc_c, tarjeta_c = buscar_tarjeta_por_id(cita_activa)
+    if tarjeta_c:
+        st.markdown(
+            f"""
+            <div class="cita-box">
+                <div style="font-weight:700;font-size:15px;color:#854D0E;margin-bottom:4px;">
+                    VISOR DE EVIDENCIA LITERAL DE CÁTEDRA — {ramo_c.upper()} ({doc_c})
+                </div>
+                <div style="font-weight:700;font-size:14px;color:#0F172A;margin-bottom:6px;">
+                    {tarjeta_c['titulo']}
+                </div>
+                <div style="font-size:12.5px;color:#334155;margin-bottom:6px;">
+                    <b>Referencia documental:</b> {tarjeta_c['fuente']}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.latex(tarjeta_c["formula"])
+        st.markdown("**Extracto literal de la página / diapositiva donde se explica este concepto:**")
+        st.code(tarjeta_c["extracto_literal"], language="text")
+        frag_local = buscar_pagina_en_destilado_local(tarjeta_c.get("marcador_moodle", ""))
+        if frag_local:
+            st.markdown("**Contexto extendido extraído en vivo desde el archivo maestro del repositorio:**")
+            st.code(frag_local, language="text")
+        if st.button("Cerrar Visor de Cita Literal"):
+            st.query_params.clear()
+            st.rerun()
+        st.divider()
 
 with st.sidebar:
     st.markdown("### Configuración de Conexión")
@@ -688,7 +971,7 @@ with st.sidebar:
         type="password",
     )
     incluir_lit_en_txt = st.checkbox(
-        "Incluir Cuadrilla de Literatura y Páginas Exactas dentro del .TXT descargado",
+        "Incluir Cuadrilla de Literatura e Hipervínculos dentro del .TXT descargado",
         value=True,
     )
     if st.button("Actualizar Lista de Repositorios", use_container_width=True):
@@ -697,9 +980,9 @@ with st.sidebar:
 
 tab1, tab2, tab3, tab4 = st.tabs([
     "1. Extractor Personalizado por Ramo (GitHub API)",
-    "2. Cuadrillas Informativas y Literatura Oficial",
+    "2. Cuadrillas con Hipervínculos a la Literatura",
     "3. Directorio de Plataformas Streamlit en Vivo",
-    "4. Archivos de Cátedra Destilados en Repositorio",
+    "4. Buscador en Archivos de Cátedra Destilados",
 ])
 
 # ------------------------------------------------------------------------------
@@ -721,7 +1004,6 @@ with tab1:
         mapa_objetos_repo = {r["name"]: r for r in lista_repos}
         nombres_disponibles = list(mapa_objetos_repo.keys())
 
-        # Filtro rápido por asignatura conocida o selección libre
         c_filtro, c_sel = st.columns([1.3, 2.7])
         with c_filtro:
             modo_seleccion = st.radio(
@@ -812,12 +1094,16 @@ with tab1:
             )
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 2: CUADRILLAS INFORMATIVAS Y LITERATURA OFICIAL (CON PÁGINAS Y LÁMINAS)
+# PESTAÑA 2: CUADRILLAS CON HIPERVÍNCULOS DIRECTOS A LA LITERATURA (#page=N)
 # ------------------------------------------------------------------------------
 with tab2:
     st.markdown(
-        "<div class='sec-header'>2. CUADRILLAS METODOLÓGICAS, FÓRMULAS Y UBICACIÓN EXACTA EN LA LITERATURA DE CÁTEDRA</div>",
+        "<div class='sec-header'>2. CUADRILLAS METODOLÓGICAS CON HIPERVÍNCULOS A LA PÁGINA EXACTA DE LA LITERATURA</div>",
         unsafe_allow_html=True,
+    )
+    st.caption(
+        "Haz clic en los botones azules de cada tarjeta para abrir el PDF oficial o la ley en la página exacta (#page=N), "
+        "o en el botón verde para abrir el extracto literal de la lámina/página de Moodle."
     )
     ramos_disponibles_lit = ["Mostrar Todos los Ramos"] + list(CUADRILLAS_LITERATURA_POR_RAMO.keys())
     filtro_ramo_lit = st.selectbox("Filtrar cuadrillas por asignatura:", options=ramos_disponibles_lit)
@@ -860,11 +1146,11 @@ with tab3:
     )
 
 # ------------------------------------------------------------------------------
-# PESTAÑA 4: ARCHIVOS DE CÁTEDRA DESTILADOS LOCALES EN EL REPOSITORIO
+# PESTAÑA 4: BUSCADOR DE PÁGINAS EN ARCHIVOS DE CÁTEDRA DESTILADOS
 # ------------------------------------------------------------------------------
 with tab4:
     st.markdown(
-        "<div class='sec-header'>4. ARCHIVOS DE CÁTEDRA DESTILADOS ALOJADOS EN ESTE REPOSITORIO</div>",
+        "<div class='sec-header'>4. BUSCADOR DIRECTO DE PÁGINAS Y AUTORES EN ARCHIVOS DE CÁTEDRA ALOJADOS</div>",
         unsafe_allow_html=True,
     )
     carpeta_actual = os.path.dirname(os.path.abspath(__file__))
@@ -896,14 +1182,18 @@ with tab4:
 
         if arch_elegido.lower().endswith(".txt"):
             texto_local = bytes_locales.decode("utf-8", errors="replace")
-            busqueda = st.text_input("Buscar término, autor o concepto dentro del archivo de cátedra:")
+            busqueda = st.text_input(
+                "Buscar autor, fórmula o marcador de página (ej. 'Fontaine', 'Hamada', 'Weber', 'Página 20'):"
+            )
             if busqueda.strip():
-                coincidencias = [
-                    linea for linea in texto_local.splitlines()
-                    if busqueda.lower() in linea.lower()
-                ]
-                st.write(f"Se encontraron {len(coincidencias)} líneas con '{busqueda}':")
-                st.code("\n".join(coincidencias[:80]), language="text")
-            else:
-                with st.expander("Ver primeras líneas del archivo de cátedra", expanded=False):
-                    st.code("\n".join(texto_local.splitlines()[:100]), language="text")
+                lineas_tot = texto_local.splitlines()
+                bloques_encontrados = []
+                for idx_l, lin in enumerate(lineas_tot):
+                    if busqueda.lower() in lin.lower():
+                        ini_b = max(0, idx_l - 2)
+                        fin_b = min(len(lineas_tot), idx_l + 6)
+                        bloques_encontrados.append("\n".join(lineas_tot[ini_b:fin_b]))
+                        if len(bloques_encontrados) >= 15:
+                            break
+                st.write(f"Mostrando las primeras {len(bloques_encontrados)} coincidencias con contexto de página:")
+                st.code("\n\n" + ("\n" + "=" * 60 + "\n").join(bloques_encontrados), language="text")
