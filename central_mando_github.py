@@ -450,65 +450,52 @@ def inyectar_badge_streamlit_en_readme(usuario, repo, app_url, token):
 def alinear_links_en_readme_perfil_usuario(usuario, mapa_urls_activas, token):
     """
     Actualiza todos los links *.streamlit.app dentro del README.md del repositorio de perfil
-    (ej. mauriciovargas1516-ux/README.md), incluyendo los botones 'STREAMLIT APP | ABRIR SISTEMA'
-    en tablas Markdown o bloques HTML <tr>...</tr>, conservando intacto el diseño del botón.
+    (ej. mauriciovargas1516-ux/README.md), excluyendo la clave del nombre de usuario para no
+    colisionar con 'github.com/mauriciovargas1516-ux/...' en cada fila de la tabla.
     """
     readme_txt, sha = leer_archivo_repo(usuario, usuario, "README.md", token=token)
-    texto = readme_txt
+    pares_repos = sorted(
+        [(k, v.strip()) for k, v in mapa_urls_activas.items() if k.lower() != usuario.lower() and v and v.startswith("http")],
+        key=lambda x: len(x[0]),
+        reverse=True,
+    )
     reemplazos = 0
-
-    # 1. Soporte para tablas HTML multilínea (<tr>...</tr>)
-    def _reemp_tr(m):
-        nonlocal reemplazos
-        bloque_tr = m.group(0)
-        for repo_k, url_dest in mapa_urls_activas.items():
-            if url_dest and url_dest.startswith("http") and repo_k.lower() in bloque_tr.lower():
-                nuevo_tr, n = re.subn(
-                    r"https://[a-zA-Z0-9.-]+\.streamlit\.app/?",
-                    url_dest.strip(),
-                    bloque_tr,
-                )
-                reemplazos += n
-                return nuevo_tr
-        return bloque_tr
-
-    texto = re.sub(r"<tr\b[^>]*>.*?</tr>", _reemp_tr, texto, flags=re.IGNORECASE | re.DOTALL)
-
-    # 2. Soporte para filas de tablas Markdown (donde Código Fuente y el botón Plataforma Web van en la misma fila)
-    lineas = texto.splitlines()
+    lineas = readme_txt.splitlines()
     nuevas_lineas = []
+
     for lin in lineas:
         lin_mod = lin
-        for repo_k, url_dest in mapa_urls_activas.items():
-            if not url_dest or not url_dest.startswith("http"):
-                continue
-            if repo_k.lower() in lin_mod.lower():
+        lin_low = lin.lower()
+        for repo_k, url_dest in pares_repos:
+            rk_low = repo_k.lower()
+            if f"/{usuario.lower()}/{rk_low}" in lin_low or f"[{rk_low}]" in lin_low:
                 lin_nueva, n = re.subn(
                     r"https://[a-zA-Z0-9.-]+\.streamlit\.app/?",
-                    url_dest.strip(),
+                    url_dest,
                     lin_mod,
                 )
-                if lin_nueva != lin_mod:
+                if n > 0:
                     reemplazos += n
                     lin_mod = lin_nueva
+                break
         nuevas_lineas.append(lin_mod)
 
     texto_final = "\n".join(nuevas_lineas) + ("\n" if readme_txt.endswith("\n") else "")
 
-    # 3. Barrido global por prefijo de subdominio en cualquier otra parte del README
-    patrones_Prefijo = {
-        "github-context-extractor": r"https://[a-zA-Z0-9-]*context-extractor[a-zA-Z0-9-]*\.streamlit\.app/?",
-        "moodle-hybrid-scraper": r"https://[a-zA-Z0-9-]*moodle-hybrid-scraper[a-zA-Z0-9-]*\.streamlit\.app/?",
-        "PROYECTOS-2026": r"https://(?:proyectos-2026|carton-vivo)[a-zA-Z0-9-]*\.streamlit\.app/?",
-        "DESARROLLO-Y-GESTION-TERRITORIAL-2026": r"https://[a-zA-Z0-9-]*territorial[a-zA-Z0-9-]*\.streamlit\.app/?",
-        "FINANZAS-AVANZADAS-2026": r"https://finanzas-avanzadas[a-zA-Z0-9-]*\.streamlit\.app/?",
-        "GESTION-TRIBUTARIA-2026": r"https://gestion-tributaria[a-zA-Z0-9-]*\.streamlit\.app/?",
-    }
-    for repo_k, pat_rx in patrones_Prefijo.items():
-        url_dest = mapa_urls_activas.get(repo_k, "")
-        if url_dest and url_dest.startswith("http"):
-            texto_final, n = re.subn(pat_rx, url_dest.strip(), texto_final)
-            reemplazos += n
+    url_moodle = mapa_urls_activas.get("moodle-hybrid-scraper", "")
+    if url_moodle and url_moodle not in texto_final and "| **Suite de Gestión Tributaria** |" in texto_final:
+        fila_moodle = (
+            f"| **Sincronizador ULagos Virtual** | "
+            f"Extractor documental híbrido (autenticación de sesión y descarga concurrente de alta velocidad de PDFs, Excels y cápsulas de cátedra desde Moodle). | "
+            f"**6,0 hrs** vs. **2 min** | **99,4%** (`180x`) | "
+            f"[moodle-hybrid-scraper](https://github.com/{usuario}/moodle-hybrid-scraper) | "
+            f"[![Abrir Sistema](https://img.shields.io/badge/STREAMLIT_APP-ABRIR_SISTEMA-4F46E5?style=flat-square&logo=streamlit&logoColor=white)]({url_moodle}) |"
+        )
+        texto_final = texto_final.replace(
+            f"[![Abrir Sistema](https://img.shields.io/badge/STREAMLIT_APP-ABRIR_SISTEMA-0F172A?style=flat-square&logo=streamlit&logoColor=white)]({mapa_urls_activas.get('GESTION-TRIBUTARIA-2026', '')}) |",
+            f"[![Abrir Sistema](https://img.shields.io/badge/STREAMLIT_APP-ABRIR_SISTEMA-0F172A?style=flat-square&logo=streamlit&logoColor=white)]({mapa_urls_activas.get('GESTION-TRIBUTARIA-2026', '')}) |\n" + fila_moodle,
+        )
+        reemplazos += 1
 
     escribir_archivo_repo(
         usuario,
