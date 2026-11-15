@@ -1,4 +1,4 @@
-[Uploading readme_hub_y_extractor_github (1).md…]()
+
 # Hub de Aplicaciones y Extractor Académico de Contexto GitHub — ULagos 2026
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://app-context-extractor-cl8x5kwfdodzvmx7m3vean.streamlit.app/)
