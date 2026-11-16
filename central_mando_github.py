@@ -561,6 +561,36 @@ def generar_plantilla_readme(repo_nom, meta, cuadrillas_lit):
 # 2. INTERFAZ PRINCIPAL DE LA PESTAÑA 5 (SUPER CENTRAL DE MANDO)
 # ==============================================================================
 
+
+def _detectar_ruta_destino_inteligente(nombre_subido: str, raw_bytes: bytes, carpeta_destino: str = "") -> str:
+    """
+    Si el archivo viene con un nombre genérico de descarga (ej. gemini-code-1794852724821.py
+    o motor_teoria_territorial_2.py), inspecciona las primeras líneas buscando 'Archivo: nombre.py'
+    o el encabezado docstring 'nombre.py —' para asignar automáticamente el nombre real en GitHub.
+    """
+    nombre_limpio = nombre_subido.strip()
+    es_generico = bool(
+        re.match(r"^(gemini[-_]?code|code|snippet|untitled|download)[-_0-9]*\.[a-zA-Z0-9]+$", nombre_limpio, re.IGNORECASE)
+        or re.search(r"_[0-9]+\.[a-zA-Z0-9]+$", nombre_limpio)
+        or re.search(r"\s+\([0-9]+\)\.[a-zA-Z0-9]+$", nombre_limpio)
+    )
+    if nombre_limpio.lower().endswith((".py", ".md", ".toml", ".txt")) and es_generico:
+        try:
+            cabecera = raw_bytes[:2500].decode("utf-8", errors="ignore")
+            m_arch = re.search(r"Archivo:\s*([A-Za-z0-9_./-]+\.[A-Za-z0-9]+)", cabecera)
+            if m_arch:
+                nombre_limpio = m_arch.group(1).strip().strip("/")
+            else:
+                m_doc = re.search(r"^\s*([A-Za-z0-9_-]+\.py)\s*[—\-:]", cabecera, re.MULTILINE)
+                if m_doc:
+                    nombre_limpio = m_doc.group(1).strip()
+                elif re.search(r"_[0-9]+\.py$", nombre_limpio):
+                    nombre_limpio = re.sub(r"_[0-9]+(\.py)$", r"\1", nombre_limpio)
+        except Exception:
+            pass
+    return f"{carpeta_destino}/{nombre_limpio}" if carpeta_destino else nombre_limpio
+
+
 def renderizar_central_de_mando(
     usuario_gh,
     token_gh,
@@ -984,7 +1014,7 @@ def renderizar_central_de_mando(
                         except Exception as ex_z:
                             st.error(f"No se pudo descomprimir `{f_obj.name}`: {ex_z}")
                     else:
-                        ruta_sug = f"{carpeta_multi}/{f_obj.name}" if carpeta_multi else f_obj.name
+                        ruta_sug = _detectar_ruta_destino_inteligente(f_obj.name, raw_b, carpeta_multi)
                         filas_preview.append({
                             "Archivo local": f_obj.name,
                             "Ruta destino en GitHub (editable)": ruta_sug,
