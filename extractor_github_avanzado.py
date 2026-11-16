@@ -3,6 +3,8 @@
 extractor_github_avanzado.py — SUPER EXTRACTOR MULTI-REPOSITORIO (PESTAÑA 1)
 - Soporta 4 niveles de profundidad, incluyendo el SUPER EXTRACTOR TOTAL (todo en 1 solo .TXT)
   y el Mapa Arquitectónico con firmas AST para pasar 11+ repositorios sin recortes.
+- Soporta parámetros URL (?repo=NOMBRE_REPO&auto=1) para compilar y disparar la descarga
+  automática del archivo .TXT cuando se invoca desde los botones del README de GitHub.
 - Captura repositorios públicos y privados (cuando Modo Admin está activo), Topics,
   visibilidad, archivo principal de entrada y archivos de configuración (.gitignore, .ipynb, etc.).
 - Entrega tabla de peso/tokens por repositorio y 3 formatos de descarga instantáneos:
@@ -16,6 +18,7 @@ import os
 import re
 import ast
 import json
+import base64
 import zipfile
 import urllib.parse
 import urllib.request
@@ -23,6 +26,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 
 EXTENSIONES_TEXTO = (
@@ -425,7 +429,6 @@ def extraer_repo_segun_modo(
                         archivos_incluidos += 1
                         continue
 
-                # SUPER EXTRACTOR TOTAL (o archivo normal en Código Limpio / Auditoría)
                 bloques.append(f"#### ARCHIVO: {nombre_repo}/{ruta_rel}")
                 bloques.append("-" * 70)
                 bloques.append(texto)
@@ -471,7 +474,6 @@ def _crear_zip_en_tomos(bloques_por_repo, encabezado_global, fecha_hoy, max_kb_t
             bytes_act = len(actual[0].encode("utf-8"))
 
         if c_bytes > max_bytes:
-            # Si un solo repositorio supera el límite, trocearlo por líneas sin romper el archivo
             lineas = contenido.splitlines(keepends=True)
             trozo = []
             b_trozo = 0
@@ -504,6 +506,47 @@ def _crear_zip_en_tomos(bloques_por_repo, encabezado_global, fecha_hoy, max_kb_t
             cab_t = f"=== TOMO {idx} DE {total_t} ({fecha_hoy}) ===\n\n"
             zf.writestr(f"TOMO_{idx:02d}_DE_{total_t:02d}_{fecha_hoy}.txt", (cab_t + txt_t).encode("utf-8"))
     return buf.getvalue(), len(tomos)
+
+
+def _disparar_descarga_automatica_js(bytes_archivo: bytes, nombre_archivo: str):
+    """Dispara automáticamente la descarga del .TXT en el navegador cuando se entra con ?repo=...&auto=1."""
+    b64 = base64.b64encode(bytes_archivo).decode("ascii")
+    nombre_seguro = re.sub(r'[^A-Za-z0-9_.-]+', '_', nombre_archivo)
+    html_dl = f"""
+    <!DOCTYPE html>
+    <html>
+    <body>
+    <script>
+    (function() {{
+        try {{
+            const b64Data = "{b64}";
+            const byteCharacters = atob(b64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {{
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }}
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], {{ type: "text/plain;charset=utf-8" }});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.style.display = "none";
+            a.href = url;
+            a.download = "{nombre_seguro}";
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(function() {{
+                URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+            }}, 4000);
+        }} catch (e) {{
+            console.error("Auto-download error:", e);
+        }}
+    }})();
+    </script>
+    </body>
+    </html>
+    """
+    components.html(html_dl, height=0, width=0)
 
 
 # ==============================================================================
@@ -539,15 +582,37 @@ def renderizar_extractor_github(
         st.warning("No se encontraron repositorios para este usuario.")
         return
 
+    # --------------------------------------------------------------------------
+    # LECTURA DE PARÁMETROS URL (?repo=NOMBRE_REPO&auto=1) DESDE EL README DE GITHUB
+    # --------------------------------------------------------------------------
+    repo_param_raw = str(st.query_params.get("repo", "")).strip()
+    auto_param_raw = str(st.query_params.get("auto", "")).strip().lower()
+
+    mapa_lower_nombres = {n.lower(): n for n in nombres_disp}
+    repo_desde_url = None
+    if repo_param_raw:
+        if repo_param_raw.lower() in mapa_lower_nombres:
+            repo_desde_url = mapa_lower_nombres[repo_param_raw.lower()]
+        elif repo_param_raw in mapa_repos or repo_param_raw in CATALOGO_COMPLEMENTARIO:
+            repo_desde_url = repo_param_raw
+            if repo_desde_url not in mapa_objetos:
+                mapa_objetos[repo_desde_url] = {"name": repo_desde_url, "default_branch": "main"}
+                nombres_disp.append(repo_desde_url)
+
+    opciones_modo_sel = [
+        "Portafolio Completo (Todos los repos)",
+        "Por Repositorio / Asignatura Específica",
+        "Selección Manual Múltiple",
+    ]
+    if repo_desde_url and st.session_state.get("ext_last_url_repo") != repo_desde_url:
+        st.session_state["ext_modo_sel"] = "Por Repositorio / Asignatura Específica"
+        st.session_state["ext_last_url_repo"] = repo_desde_url
+
     c_mod, c_prof = st.columns([1.4, 2.6])
     with c_mod:
         modo_seleccion = st.radio(
             "1. Qué repositorios empaquetar:",
-            options=[
-                "Portafolio Completo (Todos los repos)",
-                "Por Repositorio / Asignatura Específica",
-                "Selección Manual Múltiple",
-            ],
+            options=opciones_modo_sel,
             key="ext_modo_sel",
         )
 
@@ -568,10 +633,19 @@ def renderizar_extractor_github(
             st.caption(f"Se procesarán los {len(repos_seleccionados)} repositorios de `{usuario_gh}`.")
         elif modo_seleccion == "Por Repositorio / Asignatura Específica":
             opciones_etq = []
-            for rn in nombres_disp:
+            idx_default_one = 0
+            for idx_r, rn in enumerate(nombres_disp):
                 m = _obtener_meta_extendida(rn, mapa_repos, usuario_gh)
-                opciones_etq.append(f"[{m.get('categoria', 'Repo')}] {rn} — {m['ramo']}")
-            elegido = st.selectbox("Selecciona el repositorio:", options=opciones_etq, key="ext_one_sel")
+                etq_r = f"[{m.get('categoria', 'Repo')}] {rn} — {m['ramo']}"
+                opciones_etq.append(etq_r)
+                if repo_desde_url and rn == repo_desde_url:
+                    idx_default_one = idx_r
+            elegido = st.selectbox(
+                "Selecciona el repositorio:",
+                options=opciones_etq,
+                index=idx_default_one,
+                key="ext_one_sel",
+            )
             clave_r = elegido.split("] ", 1)[1].split(" — ", 1)[0].strip()
             repos_seleccionados = [clave_r] if clave_r in mapa_objetos else [nombres_disp[0]]
         else:
@@ -616,10 +690,30 @@ def renderizar_extractor_github(
         key="ext_fname_out",
     )
 
-    if st.button("COMPILAR SUPER CONTEXTO DE LOS REPOSITORIOS SELECCIONADOS", type="primary", use_container_width=True, key="ext_btn_run"):
+    # Detectar si debe ejecutarse automáticamente por venir desde el botón TXT del README (?repo=...&auto=1)
+    firma_auto = f"{repo_desde_url}_{modo_profundidad}"
+    ejecutar_auto = bool(
+        repo_desde_url
+        and auto_param_raw in ("1", "true", "yes", "si")
+        and st.session_state.get("ext_auto_compiled_key") != firma_auto
+    )
+
+    clic_manual = st.button(
+        "COMPILAR SUPER CONTEXTO DE LOS REPOSITORIOS SELECCIONADOS",
+        type="primary",
+        use_container_width=True,
+        key="ext_btn_run",
+    )
+
+    if clic_manual or ejecutar_auto:
         if not repos_seleccionados:
             st.warning("Selecciona al menos un repositorio.")
         else:
+            if ejecutar_auto:
+                repos_seleccionados = [repo_desde_url]
+                m_auto = _obtener_meta_extendida(repo_desde_url, mapa_repos, usuario_gh)
+                nombre_final = f"CONTEXTO_{m_auto['sigla_archivo']}_{fecha_hoy}.txt"
+
             lista_resumen = "\n".join(
                 f"  * {r} [{_obtener_meta_extendida(r, mapa_repos, usuario_gh).get('categoria', '-')}] -> "
                 f"{_obtener_meta_extendida(r, mapa_repos, usuario_gh)['ramo']}"
@@ -682,12 +776,22 @@ def renderizar_extractor_github(
                 "stats": filas_stats,
                 "fecha": fecha_hoy,
             }
+            if ejecutar_auto:
+                st.session_state["ext_auto_compiled_key"] = firma_auto
+                st.session_state["ext_disparar_js_ahora"] = True
 
     if "ext_res" in st.session_state:
         res_c = st.session_state["ext_res"]
         df_st = pd.DataFrame(res_c["stats"])
         kb_tot = len(res_c["bytes_txt"]) / 1024.0
         tok_tot = int(df_st["Tokens Est."].sum()) if not df_st.empty else 0
+
+        if st.session_state.pop("ext_disparar_js_ahora", False):
+            _disparar_descarga_automatica_js(res_c["bytes_txt"], res_c["nombre_txt"])
+            st.info(
+                f"⚡ **Descarga automática iniciada para `{res_c['nombre_txt']}` ({kb_tot:,.1f} KB).** "
+                "Si tu navegador bloqueó la ventana emergente, pulsa el botón **1. DESCARGAR TODO EN 1 .TXT** aquí abajo."
+            )
 
         st.success(
             f"Compilación lista: **{res_c['nombre_txt']}** — {kb_tot:,.1f} KB totales (~{tok_tot:,} tokens estimados)."
