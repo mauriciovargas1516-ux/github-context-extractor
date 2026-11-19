@@ -6,6 +6,7 @@ config.toml, archivos arbitrarios y el Puente en Vivo desde github-context-extra
 """
 
 import io
+import os
 import re
 import json
 import zlib
@@ -208,6 +209,52 @@ def listar_archivos_repo(usuario, repo, branch="main", token=""):
         return sorted(rutas)
     except Exception:
         return ["README.md", "requirements.txt", "app.py"]
+
+
+@st.cache_data(ttl=90, show_spinner=False)
+def listar_archivos_detalle_repo(usuario, repo, branch="main", token=""):
+    """Devuelve lista de dicts {path, size_kb, ext, sha} de todos los archivos del repositorio."""
+    try:
+        data, _ = _gh_request(
+            "GET",
+            f"/repos/{usuario}/{repo}/git/trees/{branch}?recursive=1",
+            token=token,
+        )
+        items = []
+        for item in data.get("tree", []):
+            if item.get("type") == "blob":
+                p = item.get("path", "")
+                ext = os.path.splitext(p)[1].lower() if "." in os.path.basename(p) else "(sin ext)"
+                items.append({
+                    "path": p,
+                    "ext": ext,
+                    "size_kb": round(int(item.get("size", 0)) / 1024.0, 1),
+                    "sha": item.get("sha", ""),
+                })
+        return sorted(items, key=lambda x: x["path"].lower())
+    except Exception:
+        return []
+
+
+def eliminar_archivo_repo(usuario, repo, ruta, token, mensaje_commit, sha=None):
+    """Elimina permanentemente un archivo en GitHub vía REST API DELETE /contents/{path}."""
+    ruta_limpia = ruta.strip("/")
+    ruta_enc = urllib.parse.quote(ruta_limpia, safe="/")
+    if not sha:
+        sha = _obtener_sha_archivo_repo(usuario, repo, ruta_limpia, token=token)
+    if not sha:
+        raise RuntimeError(f"No se pudo obtener el SHA actual de '{ruta_limpia}'.")
+    payload = {
+        "message": mensaje_commit,
+        "sha": sha,
+    }
+    data, _ = _gh_request(
+        "DELETE",
+        f"/repos/{usuario}/{repo}/contents/{ruta_enc}",
+        token=token,
+        payload=payload,
+    )
+    return data
 
 
 def detectar_archivo_entrada_repo(usuario, repo, branch="main", token=""):
@@ -631,6 +678,7 @@ def renderizar_central_de_mando(
             verificar_token_github.clear()
             listar_repos_live.clear()
             listar_archivos_repo.clear()
+            listar_archivos_detalle_repo.clear()
             st.rerun()
 
     try:
@@ -954,6 +1002,7 @@ def renderizar_central_de_mando(
             "Operación sobre archivos:",
             options=[
                 "Subir varios archivos a 1 repositorio (Lote)",
+                "Eliminar archivos en lote de 1 repositorio",
                 "Editar o Crear 1 archivo en un repositorio",
                 "Inyectar un mismo archivo en MÚLTIPLES repositorios a la vez",
             ],
@@ -1072,6 +1121,122 @@ def renderizar_central_de_mando(
                                     st.error(f"Error al subir `{ruta_dest}`: {ex}")
                             barra_m.progress(1.0, text=f"Completado: {ok_cnt}/{n_tot} archivos subidos.")
                             listar_archivos_repo.clear()
+                            listar_archivos_detalle_repo.clear()
+        elif modo_arch == "Eliminar archivos en lote de 1 repositorio":
+            st.caption(
+                "Selecciona un repositorio, filtra rápidamente por extensión (ej. `.py`, `.png`) o nombre, "
+                "marca en la tabla los archivos que ya no se usan y elimínalos en lote desde GitHub API."
+            )
+            c_d1, c_d2, c_d3 = st.columns([1.6, 1.1, 1.3])
+            with c_d1:
+                repo_del = st.selectbox("1. Repositorio a limpiar:", options=nombres_repos, key="cm_del_repo")
+            rama_del = mapa_live[repo_del]["default_branch"]
+            items_del = listar_archivos_detalle_repo(usuario_gh, repo_del, branch=rama_del, token=token_gh)
+
+            with c_d2:
+                filtro_ext = st.selectbox(
+                    "2. Filtro rápido por tipo:",
+                    options=["Todos los archivos", "Solo .py", "Solo imágenes (.png/.jpg)", "Solo .zip / .txt / .xlsx"],
+                    key="cm_del_ext",
+                )
+            with c_d3:
+                filtro_txt = st.text_input(
+                    "3. Buscar por nombre o carpeta:",
+                    placeholder="ej. josue_fig, antiguo, 0_consola",
+                    key="cm_del_search",
+                ).strip().lower()
+
+            entry_protegido = detectar_archivo_entrada_repo(usuario_gh, repo_del, branch=rama_del, token=token_gh)
+            protegidos_criticos = {entry_protegido.lower(), "requirements.txt", "packages.txt", ".streamlit/config.toml"}
+
+            items_filtrados = []
+            for it in items_del:
+                if filtro_ext == "Solo .py" and it["ext"] != ".py":
+                    continue
+                if filtro_ext == "Solo imágenes (.png/.jpg)" and it["ext"] not in (".png", ".jpg", ".jpeg", ".webp"):
+                    continue
+                if filtro_ext == "Solo .zip / .txt / .xlsx" and it["ext"] not in (".zip", ".txt", ".xlsx", ".xls", ".csv"):
+                    continue
+                if filtro_txt and filtro_txt not in it["path"].lower():
+                    continue
+                es_crit = it["path"].lower() in protegidos_criticos
+                items_filtrados.append({
+                    "Eliminar": False,
+                    "Ruta en GitHub": it["path"],
+                    "Extensión": it["ext"],
+                    "Tamaño (KB)": it["size_kb"],
+                    "Estado": "Archivo crítico (entrypoint/config)" if es_crit else "Eliminable",
+                    "_sha": it["sha"],
+                })
+
+            if not items_filtrados:
+                st.info("No hay archivos que coincidan con el filtro seleccionado.")
+            else:
+                df_del_base = pd.DataFrame(items_filtrados)
+                mapa_sha_del = dict(zip(df_del_base["Ruta en GitHub"], df_del_base["_sha"]))
+                df_del_edit = st.data_editor(
+                    df_del_base.drop(columns=["_sha"]),
+                    disabled=["Ruta en GitHub", "Extensión", "Tamaño (KB)", "Estado"],
+                    use_container_width=True,
+                    hide_index=True,
+                    key=f"cm_del_tbl_{repo_del}_{filtro_ext}_{filtro_txt}_{len(items_filtrados)}",
+                )
+
+                elegidos_del = df_del_edit[df_del_edit["Eliminar"] == True]["Ruta en GitHub"].tolist()
+                if elegidos_del:
+                    criticos_marcados = [p for p in elegidos_del if p.lower() in protegidos_criticos]
+                    if criticos_marcados:
+                        st.warning(
+                            f"Atención: marcaste archivo(s) crítico(s) de arranque/configuración: "
+                            f"{', '.join(criticos_marcados)}. Verifica antes de confirmar."
+                        )
+                    st.error(
+                        f"Se eliminarán **{len(elegidos_del)} archivo(s)** de `{repo_del}`: "
+                        + ", ".join(f"`{p}`" for p in elegidos_del)
+                    )
+                    msg_del = st.text_input(
+                        "Mensaje de commit de limpieza:",
+                        value=f"Central de Mando: eliminar {len(elegidos_del)} archivo(s) obsoleto(s) en {repo_del}",
+                        key="cm_del_commit",
+                    )
+                    confirm_del = st.checkbox(
+                        f"Confirmo que deseo eliminar permanentemente {len(elegidos_del)} archivo(s) de `{repo_del}` (reversible vía historial Git)",
+                        value=False,
+                        key="cm_del_confirm",
+                    )
+                    if st.button(
+                        f"ELIMINAR {len(elegidos_del)} ARCHIVO(S) DE {repo_del}",
+                        type="primary",
+                        disabled=not confirm_del,
+                        use_container_width=True,
+                        key="cm_del_go",
+                    ):
+                        if not token_ok:
+                            st.error("Activa el Modo Admin en la barra lateral.")
+                        else:
+                            barra_d = st.progress(0.0, text="Eliminando archivos en GitHub...")
+                            ok_d = 0
+                            for idx_d, ruta_d in enumerate(elegidos_del):
+                                barra_d.progress(idx_d / len(elegidos_del), text=f"Eliminando {ruta_d} ({idx_d + 1}/{len(elegidos_del)})...")
+                                try:
+                                    eliminar_archivo_repo(
+                                        usuario_gh,
+                                        repo_del,
+                                        ruta_d,
+                                        token_gh,
+                                        msg_del,
+                                        sha=mapa_sha_del.get(ruta_d),
+                                    )
+                                    st.success(f"`{repo_del}/{ruta_d}` eliminado.")
+                                    ok_d += 1
+                                except Exception as ex:
+                                    st.error(f"Error al eliminar `{ruta_d}`: {ex}")
+                            barra_d.progress(1.0, text=f"Limpieza completada: {ok_d}/{len(elegidos_del)} eliminados.")
+                            listar_archivos_repo.clear()
+                            listar_archivos_detalle_repo.clear()
+                else:
+                    st.caption("Marca la casilla **Eliminar** en la primera columna de los archivos que quieras borrar.")
+
         elif modo_arch == "Editar o Crear 1 archivo en un repositorio":
             c_e1, c_e2, c_e3 = st.columns([1.3, 1.5, 1.2])
             with c_e1:
@@ -1123,6 +1288,7 @@ def renderizar_central_de_mando(
                     try:
                         escribir_archivo_repo(usuario_gh, repo_ed, ruta_ed, contenido_ed, token_gh, msg_commit_ed)
                         listar_archivos_repo.clear()
+                        listar_archivos_detalle_repo.clear()
                         st.success(f"Archivo `{repo_ed}/{ruta_ed}` actualizado correctamente.")
                     except Exception as ex:
                         st.error(f"Error al guardar `{ruta_ed}`: {ex}")
@@ -1186,6 +1352,7 @@ def renderizar_central_de_mando(
                         except Exception as ex:
                             st.error(f"Error en `{r_dst}`: {ex}")
                     listar_archivos_repo.clear()
+                    listar_archivos_detalle_repo.clear()
 
     # --------------------------------------------------------------------------
     # 5.5 INYECTOR NO DESTRUCTIVO DEL PUENTE EN VIVO (DETECTA app.py / consola_web.py)
