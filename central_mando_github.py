@@ -1012,8 +1012,9 @@ def renderizar_central_de_mando(
 
         if modo_arch == "Subir varios archivos a 1 repositorio (Lote)":
             st.caption(
-                "Arrastra todos los archivos que quieras actualizar (.py, .md, .toml, .xlsx, .docx, etc.), "
-                "ajusta el nombre destino en la tabla si hace falta y súbelos al repositorio en 1 clic."
+                "Arrastra archivos o un paquete `.ZIP` para subir en lote. "
+                "**Tip:** Si incluyes un archivo `_ELIMINAR.txt` (dentro del `.ZIP` o suelto) con una ruta por línea, "
+                "la Central de Mando también ejecutará la **eliminación masiva** automáticamente sin subir ese manifiesto al repo."
             )
             c_m1, c_m2 = st.columns([1.6, 1.4])
             with c_m1:
@@ -1032,14 +1033,29 @@ def renderizar_central_de_mando(
             )
 
             archivos_lote = st.file_uploader(
-                "3. Arrastra o selecciona uno o varios archivos (o un paquete .ZIP listo para desplegar):",
+                "3. Arrastra o selecciona uno o varios archivos (o un paquete .ZIP con archivos y/o _ELIMINAR.txt):",
                 accept_multiple_files=True,
                 key="cm_multi_up",
             )
 
+            NOMBRES_MANIFIESTO_DEL = {"_eliminar.txt", "_delete.txt", "eliminar_lote.txt"}
+
+            def _parsear_manifiesto_eliminar(raw_b_man: bytes):
+                txt_m = raw_b_man.decode("utf-8", errors="ignore")
+                rutas_m = []
+                for lin in txt_m.splitlines():
+                    s_l = lin.strip().strip("/")
+                    if not s_l or s_l.startswith("#"):
+                        continue
+                    if s_l not in rutas_m:
+                        rutas_m.append(s_l)
+                return rutas_m
+
             if archivos_lote:
                 filas_preview = []
                 mapa_bytes_lote = {}
+                rutas_manifiesto_del = []
+
                 for f_obj in archivos_lote:
                     raw_b = f_obj.getvalue()
                     if descomprimir_zip and f_obj.name.lower().endswith(".zip"):
@@ -1052,6 +1068,11 @@ def renderizar_central_de_mando(
                                     if not rel_z or rel_z.startswith("__MACOSX/") or rel_z.endswith(".DS_Store"):
                                         continue
                                     b_inner = zf_in.read(zinfo)
+                                    if os.path.basename(rel_z).lower() in NOMBRES_MANIFIESTO_DEL:
+                                        for r_del_m in _parsear_manifiesto_eliminar(b_inner):
+                                            if r_del_m not in rutas_manifiesto_del:
+                                                rutas_manifiesto_del.append(r_del_m)
+                                        continue
                                     clave_loc = f"{f_obj.name} :: {rel_z}"
                                     ruta_sug = f"{carpeta_multi}/{rel_z}" if carpeta_multi else rel_z
                                     filas_preview.append({
@@ -1063,6 +1084,11 @@ def renderizar_central_de_mando(
                         except Exception as ex_z:
                             st.error(f"No se pudo descomprimir `{f_obj.name}`: {ex_z}")
                     else:
+                        if os.path.basename(f_obj.name).lower() in NOMBRES_MANIFIESTO_DEL:
+                            for r_del_m in _parsear_manifiesto_eliminar(raw_b):
+                                if r_del_m not in rutas_manifiesto_del:
+                                    rutas_manifiesto_del.append(r_del_m)
+                            continue
                         ruta_sug = _detectar_ruta_destino_inteligente(f_obj.name, raw_b, carpeta_multi)
                         filas_preview.append({
                             "Archivo local": f_obj.name,
@@ -1071,24 +1097,52 @@ def renderizar_central_de_mando(
                         })
                         mapa_bytes_lote[f_obj.name] = raw_b
 
-                if not filas_preview:
-                    st.warning("No se detectaron archivos válidos para subir.")
+                if not filas_preview and not rutas_manifiesto_del:
+                    st.warning("No se detectaron archivos válidos para subir ni instrucciones en `_ELIMINAR.txt`.")
                 else:
                     n_despl = len(filas_preview)
-                    df_lote_edit = st.data_editor(
-                        pd.DataFrame(filas_preview),
-                        disabled=["Archivo local", "Tamaño (KB)"],
-                        use_container_width=True,
-                        hide_index=True,
-                        key=f"cm_multi_tbl_{repo_multi}_{carpeta_multi}_{n_despl}_{descomprimir_zip}",
-                    )
+                    n_elim_m = len(rutas_manifiesto_del)
+                    df_lote_edit = pd.DataFrame()
+
+                    if n_despl > 0:
+                        st.markdown(f"**Archivos a subir / actualizar ({n_despl}):**")
+                        df_lote_edit = st.data_editor(
+                            pd.DataFrame(filas_preview),
+                            disabled=["Archivo local", "Tamaño (KB)"],
+                            use_container_width=True,
+                            hide_index=True,
+                            key=f"cm_multi_tbl_{repo_multi}_{carpeta_multi}_{n_despl}_{descomprimir_zip}",
+                        )
+
+                    rutas_elim_final = []
+                    if n_elim_m > 0:
+                        st.warning(
+                            f"**Manifiesto `_ELIMINAR.txt` detectado:** se solicitará eliminar **{n_elim_m} archivo(s)** de `{repo_multi}`."
+                        )
+                        df_elim_m = st.data_editor(
+                            pd.DataFrame([{"Eliminar": True, "Ruta a eliminar en GitHub": r} for r in rutas_manifiesto_del]),
+                            disabled=["Ruta a eliminar en GitHub"],
+                            use_container_width=True,
+                            hide_index=True,
+                            key=f"cm_multi_del_tbl_{repo_multi}_{n_elim_m}",
+                        )
+                        rutas_elim_final = df_elim_m[df_elim_m["Eliminar"] == True]["Ruta a eliminar en GitHub"].tolist()
+
+                    partes_lbl = []
+                    if n_despl > 0:
+                        partes_lbl.append(f"SUBIR {n_despl}")
+                    if rutas_elim_final:
+                        partes_lbl.append(f"ELIMINAR {len(rutas_elim_final)}")
+                    etiqueta_btn = " Y ".join(partes_lbl) + f" ARCHIVO(S) EN {repo_multi}"
+
                     msg_multi = st.text_input(
                         "4. Mensaje de commit:",
-                        value=f"Central de Mando: actualizar {n_despl} archivo(s) en {repo_multi}",
+                        value=f"Central de Mando: {', '.join(partes_lbl).lower()} archivo(s) en {repo_multi}",
                         key="cm_multi_commit",
                     )
+
                     if st.button(
-                        f"SUBIR {n_despl} ARCHIVO(S) A {repo_multi}",
+                        etiqueta_btn,
                         type="primary",
                         use_container_width=True,
                         key="cm_multi_go",
@@ -1096,30 +1150,55 @@ def renderizar_central_de_mando(
                         if not token_ok:
                             st.error("Activa el Modo Admin en la barra lateral.")
                         else:
-                            barra_m = st.progress(0.0, text="Subiendo archivos a GitHub...")
-                            n_tot = len(df_lote_edit)
-                            ok_cnt = 0
-                            for idx_row, fila_m in enumerate(df_lote_edit.itertuples(index=False)):
-                                nom_loc = fila_m[0]
-                                ruta_dest = str(fila_m[1]).strip().strip("/")
-                                barra_m.progress(idx_row / max(n_tot, 1), text=f"Subiendo {ruta_dest} ({idx_row + 1}/{n_tot})...")
-                                if not ruta_dest:
-                                    st.warning(f"Se omitió `{nom_loc}` porque la ruta destino quedó vacía.")
-                                    continue
-                                try:
-                                    escribir_archivo_repo(
-                                        usuario_gh,
-                                        repo_multi,
-                                        ruta_dest,
-                                        mapa_bytes_lote[nom_loc],
-                                        token_gh,
-                                        msg_multi,
-                                    )
-                                    st.success(f"`{repo_multi}/{ruta_dest}` actualizado.")
-                                    ok_cnt += 1
-                                except Exception as ex:
-                                    st.error(f"Error al subir `{ruta_dest}`: {ex}")
-                            barra_m.progress(1.0, text=f"Completado: {ok_cnt}/{n_tot} archivos subidos.")
+                            total_ops = n_despl + len(rutas_elim_final)
+                            barra_m = st.progress(0.0, text="Ejecutando despliegue en GitHub...")
+                            paso_act = 0
+                            ok_up = 0
+                            ok_del = 0
+
+                            if n_despl > 0:
+                                for fila_m in df_lote_edit.itertuples(index=False):
+                                    nom_loc = fila_m[0]
+                                    ruta_dest = str(fila_m[1]).strip().strip("/")
+                                    barra_m.progress(paso_act / max(total_ops, 1), text=f"Subiendo {ruta_dest} ({paso_act + 1}/{total_ops})...")
+                                    paso_act += 1
+                                    if not ruta_dest:
+                                        continue
+                                    try:
+                                        escribir_archivo_repo(
+                                            usuario_gh,
+                                            repo_multi,
+                                            ruta_dest,
+                                            mapa_bytes_lote[nom_loc],
+                                            token_gh,
+                                            msg_multi,
+                                        )
+                                        st.success(f"Subido: `{repo_multi}/{ruta_dest}`")
+                                        ok_up += 1
+                                    except Exception as ex:
+                                        st.error(f"Error al subir `{ruta_dest}`: {ex}")
+
+                            if rutas_elim_final:
+                                for ruta_d in rutas_elim_final:
+                                    barra_m.progress(paso_act / max(total_ops, 1), text=f"Eliminando {ruta_d} ({paso_act + 1}/{total_ops})...")
+                                    paso_act += 1
+                                    try:
+                                        eliminar_archivo_repo(
+                                            usuario_gh,
+                                            repo_multi,
+                                            ruta_d,
+                                            token_gh,
+                                            msg_multi,
+                                        )
+                                        st.success(f"Eliminado: `{repo_multi}/{ruta_d}`")
+                                        ok_del += 1
+                                    except Exception as ex:
+                                        if "404" in str(ex):
+                                            st.info(f"Omitido (ya no existía): `{repo_multi}/{ruta_d}`")
+                                        else:
+                                            st.error(f"Error al eliminar `{ruta_d}`: {ex}")
+
+                            barra_m.progress(1.0, text=f"Completado: {ok_up} subidos | {ok_del} eliminados.")
                             listar_archivos_repo.clear()
                             listar_archivos_detalle_repo.clear()
         elif modo_arch == "Eliminar archivos en lote de 1 repositorio":
